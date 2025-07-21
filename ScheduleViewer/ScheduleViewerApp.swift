@@ -9,12 +9,12 @@ import SwiftUI
 
 @main
 struct ScheduleViewerApp: App {
-    let persistenceController = PersistenceController.shared
+    let cloudKitManager = CloudKitManager.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(\.managedObjectContext, persistenceController.container.viewContext)
+                .environmentObject(cloudKitManager)
         }
     }
 }

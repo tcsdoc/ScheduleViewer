@@ -2,56 +2,117 @@
 //  Persistence.swift
 //  ScheduleViewer
 //
-//  Created by mark on 7/12/25.
+//  Created by mark on 7/5/25.
 //
 
-import CoreData
+import Foundation
+import CloudKit
 
-struct PersistenceController {
-    static let shared = PersistenceController()
-
-    @MainActor
-    static let preview: PersistenceController = {
-        let result = PersistenceController(inMemory: true)
-        let viewContext = result.container.viewContext
-        for _ in 0..<10 {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
+class CloudKitManager: ObservableObject {
+    static let shared = CloudKitManager()
+    
+    private let container: CKContainer
+    private let publicDatabase: CKDatabase
+    
+    @Published var dailySchedules: [DailyScheduleRecord] = []
+    @Published var monthlyNotes: [MonthlyNotesRecord] = []
+    @Published var isLoading = false
+    
+    init() {
+        container = CKContainer(identifier: "iCloud.com.gulfcoast.ProviderCalendar")
+        publicDatabase = container.publicCloudDatabase
+    }
+    
+    func fetchAllData() {
+        isLoading = true
+        
+        let group = DispatchGroup()
+        
+        // Fetch Daily Schedules
+        group.enter()
+        fetchDailySchedules { [weak self] in
+            group.leave()
         }
-        do {
-            try viewContext.save()
-        } catch {
-            // Replace this implementation with code to handle the error appropriately.
-            // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-            let nsError = error as NSError
-            fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+        
+        // Fetch Monthly Notes
+        group.enter()
+        fetchMonthlyNotes { [weak self] in
+            group.leave()
         }
-        return result
-    }()
-
-    let container: NSPersistentCloudKitContainer
-
-    init(inMemory: Bool = false) {
-        container = NSPersistentCloudKitContainer(name: "ScheduleViewer")
-        if inMemory {
-            container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
+        
+        group.notify(queue: .main) {
+            self.isLoading = false
         }
-        container.loadPersistentStores(completionHandler: { (storeDescription, error) in
-            if let error = error as NSError? {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-
-                /*
-                 Typical reasons for an error here include:
-                 * The parent directory does not exist, cannot be created, or disallows writing.
-                 * The persistent store is not accessible, due to permissions or data protection when the device is locked.
-                 * The device is out of space.
-                 * The store could not be migrated to the current model version.
-                 Check the error message to determine what the actual problem was.
-                 */
-                fatalError("Unresolved error \(error), \(error.userInfo)")
+    }
+    
+    private func fetchDailySchedules(completion: @escaping () -> Void) {
+        let query = CKQuery(recordType: "CD_DailySchedule", predicate: NSPredicate(value: true))
+        query.sortDescriptors = [NSSortDescriptor(key: "CD_date", ascending: true)]
+        
+        publicDatabase.perform(query, inZoneWith: nil) { [weak self] records, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("Error fetching daily schedules: \(error)")
+                } else if let records = records {
+                    self?.dailySchedules = records.compactMap { record in
+                        DailyScheduleRecord(from: record)
+                    }
+                }
+                completion()
             }
-        })
-        container.viewContext.automaticallyMergesChangesFromParent = true
+        }
+    }
+    
+    private func fetchMonthlyNotes(completion: @escaping () -> Void) {
+        let query = CKQuery(recordType: "CD_MonthlyNotes", predicate: NSPredicate(value: true))
+        query.sortDescriptors = [NSSortDescriptor(key: "CD_month", ascending: true)]
+        
+        publicDatabase.perform(query, inZoneWith: nil) { [weak self] records, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("Error fetching monthly notes: \(error)")
+                } else if let records = records {
+                    self?.monthlyNotes = records.compactMap { record in
+                        MonthlyNotesRecord(from: record)
+                    }
+                }
+                completion()
+            }
+        }
+    }
+}
+
+// MARK: - Data Models
+struct DailyScheduleRecord: Identifiable {
+    let id: String
+    let date: Date?
+    let line1: String?
+    let line2: String?
+    let line3: String?
+    
+    init(from record: CKRecord) {
+        self.id = record.recordID.recordName
+        self.date = record["CD_date"] as? Date
+        self.line1 = record["CD_line1"] as? String
+        self.line2 = record["CD_line2"] as? String
+        self.line3 = record["CD_line3"] as? String
+    }
+}
+
+struct MonthlyNotesRecord: Identifiable {
+    let id: String
+    let month: Int
+    let year: Int
+    let line1: String?
+    let line2: String?
+    let line3: String?
+    
+    init(from record: CKRecord) {
+        self.id = record.recordID.recordName
+        self.month = (record["CD_month"] as? Int) ?? 0
+        self.year = (record["CD_year"] as? Int) ?? 0
+        self.line1 = record["CD_line1"] as? String
+        self.line2 = record["CD_line2"] as? String
+        self.line3 = record["CD_line3"] as? String
     }
 }
