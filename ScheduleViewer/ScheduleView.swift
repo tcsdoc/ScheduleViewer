@@ -327,7 +327,7 @@ struct iPadCalendarGridView: View {
         // Present print dialog
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let window = windowScene.windows.first,
-           let rootViewController = window.rootViewController {
+           let _ = window.rootViewController {
             printController.present(animated: true, completionHandler: nil)
         }
     }

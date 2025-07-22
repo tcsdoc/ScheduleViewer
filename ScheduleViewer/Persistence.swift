@@ -3,6 +3,7 @@
 //  ScheduleViewer
 //
 //  Created by mark on 7/5/25.
+//  Updated for Core Data + CloudKit Private Database integration
 //
 
 import Foundation
@@ -12,7 +13,7 @@ class CloudKitManager: ObservableObject {
     static let shared = CloudKitManager()
     
     private let container: CKContainer
-    private let publicDatabase: CKDatabase
+    private let privateDatabase: CKDatabase
     
     @Published var dailySchedules: [DailyScheduleRecord] = []
     @Published var monthlyNotes: [MonthlyNotesRecord] = []
@@ -20,7 +21,8 @@ class CloudKitManager: ObservableObject {
     
     init() {
         container = CKContainer(identifier: "iCloud.com.gulfcoast.ProviderCalendar")
-        publicDatabase = container.publicCloudDatabase
+        privateDatabase = container.privateCloudDatabase  // Changed from public to private
+        print("✅ ScheduleViewer configured for Private Database")
     }
     
     func fetchAllData() {
@@ -30,13 +32,13 @@ class CloudKitManager: ObservableObject {
         
         // Fetch Daily Schedules
         group.enter()
-        fetchDailySchedules { [weak self] in
+        fetchDailySchedules {
             group.leave()
         }
         
         // Fetch Monthly Notes
         group.enter()
-        fetchMonthlyNotes { [weak self] in
+        fetchMonthlyNotes {
             group.leave()
         }
         
@@ -49,16 +51,25 @@ class CloudKitManager: ObservableObject {
         let query = CKQuery(recordType: "CD_DailySchedule", predicate: NSPredicate(value: true))
         query.sortDescriptors = [NSSortDescriptor(key: "CD_date", ascending: true)]
         
-        publicDatabase.perform(query, inZoneWith: nil) { [weak self] records, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    print("Error fetching daily schedules: \(error)")
-                } else if let records = records {
-                    self?.dailySchedules = records.compactMap { record in
-                        DailyScheduleRecord(from: record)
-                    }
+        Task {
+            do {
+                let (records, _) = try await privateDatabase.records(matching: query)
+                let scheduleRecords = records.compactMap { _, result in
+                    try? result.get()
+                }.compactMap { record in
+                    DailyScheduleRecord(from: record)
                 }
-                completion()
+                
+                await MainActor.run {
+                    print("✅ Fetched \(scheduleRecords.count) daily schedules from Private Database")
+                    self.dailySchedules = scheduleRecords
+                    completion()
+                }
+            } catch {
+                await MainActor.run {
+                    print("❌ Error fetching daily schedules from Private Database: \(error)")
+                    completion()
+                }
             }
         }
     }
@@ -67,16 +78,25 @@ class CloudKitManager: ObservableObject {
         let query = CKQuery(recordType: "CD_MonthlyNotes", predicate: NSPredicate(value: true))
         query.sortDescriptors = [NSSortDescriptor(key: "CD_month", ascending: true)]
         
-        publicDatabase.perform(query, inZoneWith: nil) { [weak self] records, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    print("Error fetching monthly notes: \(error)")
-                } else if let records = records {
-                    self?.monthlyNotes = records.compactMap { record in
-                        MonthlyNotesRecord(from: record)
-                    }
+        Task {
+            do {
+                let (records, _) = try await privateDatabase.records(matching: query)
+                let notesRecords = records.compactMap { _, result in
+                    try? result.get()
+                }.compactMap { record in
+                    MonthlyNotesRecord(from: record)
                 }
-                completion()
+                
+                await MainActor.run {
+                    print("✅ Fetched \(notesRecords.count) monthly notes from Private Database")
+                    self.monthlyNotes = notesRecords
+                    completion()
+                }
+            } catch {
+                await MainActor.run {
+                    print("❌ Error fetching monthly notes from Private Database: \(error)")
+                    completion()
+                }
             }
         }
     }
@@ -109,8 +129,8 @@ struct MonthlyNotesRecord: Identifiable {
     
     init(from record: CKRecord) {
         self.id = record.recordID.recordName
-        self.month = (record["CD_month"] as? Int) ?? 0
-        self.year = (record["CD_year"] as? Int) ?? 0
+        self.month = Int((record["CD_month"] as? Int16) ?? 0)
+        self.year = Int((record["CD_year"] as? Int16) ?? 0)
         self.line1 = record["CD_line1"] as? String
         self.line2 = record["CD_line2"] as? String
         self.line3 = record["CD_line3"] as? String
