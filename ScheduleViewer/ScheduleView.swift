@@ -39,6 +39,11 @@ struct ScheduleView: View {
             }
         }
         .onAppear {
+            print("🔄 ScheduleViewer appeared - fetching data...")
+            cloudKitManager.fetchAllData()
+        }
+        .refreshable {
+            print("🔄 Manual refresh triggered in ScheduleViewer")
             cloudKitManager.fetchAllData()
         }
     }

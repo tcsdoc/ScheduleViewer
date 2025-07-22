@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CloudKit
 
 @main
 struct ScheduleViewerApp: App {
@@ -15,6 +16,17 @@ struct ScheduleViewerApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(cloudKitManager)
+                .onOpenURL { url in
+                    print("🔗 ScheduleViewer opened with URL: \(url)")
+                    
+                    // Check if this is a CloudKit share URL
+                    if url.host == "www.icloud.com" && url.path.contains("/share/") {
+                        print("✅ Detected CloudKit share URL - attempting to accept")
+                        cloudKitManager.acceptShare(from: url)
+                    } else {
+                        print("ℹ️ Non-CloudKit URL received: \(url)")
+                    }
+                }
         }
     }
 }

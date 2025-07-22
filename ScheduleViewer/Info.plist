@@ -5,11 +5,11 @@
 	<key>CFBundleDisplayName</key>
 	<string>Schedule Viewer</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.yourcompany.scheduleviewer</string>
+	<string>com.gulfcoast.ScheduleViewer</string>
 	<key>CFBundleVersion</key>
-	<string>1.0</string>
+	<string>6</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.5</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundlePackageType</key>
@@ -54,12 +54,12 @@
 	</array>
 	<key>NSUbiquitousContainers</key>
 	<dict>
-		<key>iCloud.com.yourcompany.scheduleviewer</key>
+		<key>iCloud.com.gulfcoast.ProviderCalendar</key>
 		<dict>
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<true/>
 			<key>NSUbiquitousContainerName</key>
-			<string>Schedule Viewer</string>
+			<string>Provider Calendar</string>
 			<key>NSUbiquitousContainerSupportedFolderLevels</key>
 			<string>None</string>
 		</dict>
@@ -78,5 +78,7 @@
 	<string>This app does not use the microphone.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>This app does not use Face ID.</string>
+	<key>CKSharingSupported</key>
+	<true/>
 </dict>
 </plist>
