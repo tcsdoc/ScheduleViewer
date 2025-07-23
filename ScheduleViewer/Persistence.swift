@@ -86,167 +86,170 @@ class CloudKitManager: ObservableObject {
         let query = CKQuery(recordType: "CD_DailySchedule", predicate: NSPredicate(value: true))
         query.sortDescriptors = [NSSortDescriptor(key: "CD_date", ascending: true)]
         
-        Task {
-            var allScheduleRecords: [DailyScheduleRecord] = []
-            
-            // Fetch from private database zones
+        Task { @MainActor in
             do {
-                let privateZones = try await privateDatabase.allRecordZones()
-                print("🔍 Fetching daily schedules from \(privateZones.count) private zones...")
-                
-                for zone in privateZones {
-                    print("   Checking private zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
-                    
-                    do {
-                        let (records, _) = try await privateDatabase.records(matching: query, inZoneWith: zone.zoneID)
-                        let scheduleRecords = records.compactMap { _, result in
-                            try? result.get()
-                        }.compactMap { record in
-                            DailyScheduleRecord(from: record)
-                        }
-                        
-                        print("   ✅ Found \(scheduleRecords.count) daily schedules in private zone \(zone.zoneID.zoneName)")
-                        allScheduleRecords.append(contentsOf: scheduleRecords)
-                        
-                        // Log some sample records for debugging
-                        for schedule in scheduleRecords.prefix(3) {
-                            let dateStr = schedule.date?.description ?? "No date"
-                            let line1 = schedule.line1 ?? ""
-                            print("     📅 Private Schedule: \(dateStr) - \(line1)")
-                        }
-                        
-                    } catch {
-                        print("   ❌ Error fetching from private zone \(zone.zoneID.zoneName): \(error)")
-                    }
-                }
-                
-                // Also fetch from shared database zones
-                let sharedDatabase = container.sharedCloudDatabase
-                let sharedZones = try await sharedDatabase.allRecordZones()
-                print("🔍 Fetching daily schedules from \(sharedZones.count) shared zones...")
-                
-                for zone in sharedZones {
-                    print("   Checking shared zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
-                    
-                    do {
-                        let (records, _) = try await sharedDatabase.records(matching: query, inZoneWith: zone.zoneID)
-                        let scheduleRecords = records.compactMap { _, result in
-                            try? result.get()
-                        }.compactMap { record in
-                            DailyScheduleRecord(from: record)
-                        }
-                        
-                        print("   ✅ Found \(scheduleRecords.count) daily schedules in shared zone \(zone.zoneID.zoneName)")
-                        allScheduleRecords.append(contentsOf: scheduleRecords)
-                        
-                        // Log some sample records for debugging
-                        for schedule in scheduleRecords.prefix(3) {
-                            let dateStr = schedule.date?.description ?? "No date"
-                            let line1 = schedule.line1 ?? ""
-                            print("     📅 Shared Schedule: \(dateStr) - \(line1)")
-                        }
-                        
-                    } catch {
-                        print("   ❌ Error fetching from shared zone \(zone.zoneID.zoneName): \(error)")
-                    }
-                }
-                
-                await MainActor.run {
-                    print("✅ Fetched \(allScheduleRecords.count) total daily schedules from all databases")
-                    self.dailySchedules = allScheduleRecords
-                    completion()
-                }
+                let allScheduleRecords = try await fetchAllDailyScheduleRecords(query: query)
+                print("✅ Fetched \(allScheduleRecords.count) total daily schedules from all databases")
+                self.dailySchedules = allScheduleRecords
+                completion()
             } catch {
-                await MainActor.run {
-                    print("❌ Error fetching zones or daily schedules: \(error)")
-                    completion()
-                }
+                print("❌ Error fetching zones or daily schedules: \(error)")
+                completion()
             }
         }
+    }
+    
+    private func fetchAllDailyScheduleRecords(query: CKQuery) async throws -> [DailyScheduleRecord] {
+        var allScheduleRecords: [DailyScheduleRecord] = []
+        
+        // Fetch from private database zones
+        let privateZones = try await privateDatabase.allRecordZones()
+        print("🔍 Fetching daily schedules from \(privateZones.count) private zones...")
+        
+        for zone in privateZones {
+            print("   Checking private zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
+            
+            do {
+                let (records, _) = try await privateDatabase.records(matching: query, inZoneWith: zone.zoneID)
+                let scheduleRecords = records.compactMap { _, result in
+                    try? result.get()
+                }.compactMap { record in
+                    DailyScheduleRecord(from: record)
+                }
+                
+                print("   ✅ Found \(scheduleRecords.count) daily schedules in private zone \(zone.zoneID.zoneName)")
+                allScheduleRecords.append(contentsOf: scheduleRecords)
+                
+                // Log some sample records for debugging
+                for schedule in scheduleRecords.prefix(3) {
+                    let dateStr = schedule.date?.description ?? "No date"
+                    let line1 = schedule.line1 ?? ""
+                    print("     📅 Private Schedule: \(dateStr) - \(line1)")
+                }
+                
+            } catch {
+                print("   ❌ Error fetching from private zone \(zone.zoneID.zoneName): \(error)")
+            }
+        }
+        
+        // Also fetch from shared database zones
+        let sharedDatabase = container.sharedCloudDatabase
+        let sharedZones = try await sharedDatabase.allRecordZones()
+        print("🔍 Fetching daily schedules from \(sharedZones.count) shared zones...")
+        
+        for zone in sharedZones {
+            print("   Checking shared zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
+            
+            do {
+                let (records, _) = try await sharedDatabase.records(matching: query, inZoneWith: zone.zoneID)
+                let scheduleRecords = records.compactMap { _, result in
+                    try? result.get()
+                }.compactMap { record in
+                    DailyScheduleRecord(from: record)
+                }
+                
+                print("   ✅ Found \(scheduleRecords.count) daily schedules in shared zone \(zone.zoneID.zoneName)")
+                allScheduleRecords.append(contentsOf: scheduleRecords)
+                
+                // Log some sample records for debugging
+                for schedule in scheduleRecords.prefix(3) {
+                    let dateStr = schedule.date?.description ?? "No date"
+                    let line1 = schedule.line1 ?? ""
+                    print("     📅 Shared Schedule: \(dateStr) - \(line1)")
+                }
+                
+            } catch {
+                print("   ❌ Error fetching from shared zone \(zone.zoneID.zoneName): \(error)")
+            }
+        }
+        
+        return allScheduleRecords
     }
     
     private func fetchMonthlyNotes(completion: @escaping () -> Void) {
         let query = CKQuery(recordType: "CD_MonthlyNotes", predicate: NSPredicate(value: true))
         query.sortDescriptors = [NSSortDescriptor(key: "CD_month", ascending: true)]
         
-        Task {
-            var allNotesRecords: [MonthlyNotesRecord] = []
-            
-            // Fetch from private database zones
+        Task { @MainActor in
             do {
-                let privateZones = try await privateDatabase.allRecordZones()
-                print("🔍 Fetching monthly notes from \(privateZones.count) private zones...")
-                
-                for zone in privateZones {
-                    print("   Checking private zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
-                    
-                    do {
-                        let (records, _) = try await privateDatabase.records(matching: query, inZoneWith: zone.zoneID)
-                        let notesRecords = records.compactMap { _, result in
-                            try? result.get()
-                        }.compactMap { record in
-                            MonthlyNotesRecord(from: record)
-                        }
-                        
-                        print("   ✅ Found \(notesRecords.count) monthly notes in private zone \(zone.zoneID.zoneName)")
-                        allNotesRecords.append(contentsOf: notesRecords)
-                        
-                        // Log some sample records for debugging
-                        for note in notesRecords.prefix(3) {
-                            let line1 = note.line1 ?? ""
-                            print("     📝 Private Note: \(note.month)/\(note.year) - \(line1)")
-                        }
-                        
-                    } catch {
-                        print("   ❌ Error fetching monthly notes from private zone \(zone.zoneID.zoneName): \(error)")
-                    }
-                }
-                
-                // Also fetch from shared database zones
-                let sharedDatabase = container.sharedCloudDatabase
-                let sharedZones = try await sharedDatabase.allRecordZones()
-                print("🔍 Fetching monthly notes from \(sharedZones.count) shared zones...")
-                
-                for zone in sharedZones {
-                    print("   Checking shared zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
-                    
-                    do {
-                        let (records, _) = try await sharedDatabase.records(matching: query, inZoneWith: zone.zoneID)
-                        let notesRecords = records.compactMap { _, result in
-                            try? result.get()
-                        }.compactMap { record in
-                            MonthlyNotesRecord(from: record)
-                        }
-                        
-                        print("   ✅ Found \(notesRecords.count) monthly notes in shared zone \(zone.zoneID.zoneName)")
-                        allNotesRecords.append(contentsOf: notesRecords)
-                        
-                        // Log some sample records for debugging
-                        for note in notesRecords.prefix(3) {
-                            let line1 = note.line1 ?? ""
-                            print("     📝 Shared Note: \(note.month)/\(note.year) - \(line1)")
-                        }
-                        
-                    } catch {
-                        print("   ❌ Error fetching monthly notes from shared zone \(zone.zoneID.zoneName): \(error)")
-                    }
-                }
-                
-                await MainActor.run {
-                    print("✅ Fetched \(allNotesRecords.count) total monthly notes from all databases")
-                    self.monthlyNotes = allNotesRecords
-                    completion()
-                }
+                let allNotesRecords = try await fetchAllMonthlyNotesRecords(query: query)
+                print("✅ Fetched \(allNotesRecords.count) total monthly notes from all databases")
+                self.monthlyNotes = allNotesRecords
+                completion()
             } catch {
-                await MainActor.run {
-                    print("❌ Error fetching zones or monthly notes: \(error)")
-                    completion()
-                }
+                print("❌ Error fetching zones or monthly notes: \(error)")
+                completion()
             }
         }
     }
     
+    private func fetchAllMonthlyNotesRecords(query: CKQuery) async throws -> [MonthlyNotesRecord] {
+        var allNotesRecords: [MonthlyNotesRecord] = []
+        
+        // Fetch from private database zones
+        let privateZones = try await privateDatabase.allRecordZones()
+        print("🔍 Fetching monthly notes from \(privateZones.count) private zones...")
+        
+        for zone in privateZones {
+            print("   Checking private zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
+            
+            do {
+                let (records, _) = try await privateDatabase.records(matching: query, inZoneWith: zone.zoneID)
+                let notesRecords = records.compactMap { _, result in
+                    try? result.get()
+                }.compactMap { record in
+                    MonthlyNotesRecord(from: record)
+                }
+                
+                print("   ✅ Found \(notesRecords.count) monthly notes in private zone \(zone.zoneID.zoneName)")
+                allNotesRecords.append(contentsOf: notesRecords)
+                
+                // Log some sample records for debugging
+                for note in notesRecords.prefix(3) {
+                    let line1 = note.line1 ?? ""
+                    print("     📝 Private Note: \(note.month)/\(note.year) - \(line1)")
+                }
+                
+            } catch {
+                print("   ❌ Error fetching monthly notes from private zone \(zone.zoneID.zoneName): \(error)")
+            }
+        }
+        
+        // Also fetch from shared database zones
+        let sharedDatabase = container.sharedCloudDatabase
+        let sharedZones = try await sharedDatabase.allRecordZones()
+        print("🔍 Fetching monthly notes from \(sharedZones.count) shared zones...")
+        
+        for zone in sharedZones {
+            print("   Checking shared zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
+            
+            do {
+                let (records, _) = try await sharedDatabase.records(matching: query, inZoneWith: zone.zoneID)
+                let notesRecords = records.compactMap { _, result in
+                    try? result.get()
+                }.compactMap { record in
+                    MonthlyNotesRecord(from: record)
+                }
+                
+                print("   ✅ Found \(notesRecords.count) monthly notes in shared zone \(zone.zoneID.zoneName)")
+                allNotesRecords.append(contentsOf: notesRecords)
+                
+                // Log some sample records for debugging
+                for note in notesRecords.prefix(3) {
+                    let line1 = note.line1 ?? ""
+                    print("     📝 Shared Note: \(note.month)/\(note.year) - \(line1)")
+                }
+                
+            } catch {
+                print("   ❌ Error fetching monthly notes from shared zone \(zone.zoneID.zoneName): \(error)")
+            }
+        }
+        
+        return allNotesRecords
+    }
+    
         /// Check for accepted CloudKit shares that might contain calendar data
+    @MainActor
     func checkForAcceptedShares() async {
         print("🔍 ScheduleViewer: Checking for accepted CloudKit shares...")
         
