@@ -39,11 +39,15 @@ struct ScheduleView: View {
             }
         }
         .onAppear {
+            #if DEBUG
             print("🔄 ScheduleViewer appeared - fetching data...")
+            #endif
             cloudKitManager.fetchAllData()
         }
         .refreshable {
+            #if DEBUG
             print("🔄 Manual refresh triggered in ScheduleViewer")
+            #endif
             cloudKitManager.fetchAllData()
         }
     }
@@ -57,7 +61,7 @@ struct iPhoneScheduleListView: View {
     
     var body: some View {
         VStack(spacing: 12) {
-            // Month Navigation
+            // Month Navigation with Print Button
             HStack {
                 Button(action: { currentMonth = Calendar.current.date(byAdding: .month, value: -1, to: currentMonth) ?? currentMonth }) {
                     Image(systemName: "chevron.left").font(.title2)
@@ -67,6 +71,15 @@ struct iPhoneScheduleListView: View {
                     .font(.title2)
                     .fontWeight(.semibold)
                 Spacer()
+                
+                // Print Button
+                Button(action: { printCalendar(dailySchedules: dailySchedules, monthlyNotes: monthlyNotes, currentMonth: currentMonth) }) {
+                    Image(systemName: "printer")
+                        .font(.title2)
+                        .foregroundColor(.blue)
+                }
+                .padding(.trailing, 8)
+                
                 Button(action: { currentMonth = Calendar.current.date(byAdding: .month, value: 1, to: currentMonth) ?? currentMonth }) {
                     Image(systemName: "chevron.right").font(.title2)
                 }
@@ -162,7 +175,7 @@ struct iPadCalendarGridView: View {
                         Spacer()
                         
                         // Print Button
-                        Button(action: { printCalendar() }) {
+                        Button(action: { printCalendar(dailySchedules: dailySchedules, monthlyNotes: monthlyNotes, currentMonth: currentMonth) }) {
                             Image(systemName: "printer")
                                 .font(.title2)
                                 .foregroundColor(.blue)
@@ -314,139 +327,178 @@ struct iPadCalendarGridView: View {
         return range.compactMap { day in calendar.date(byAdding: .day, value: day - 1, to: firstDay) }
     }
     
-    private func printCalendar() {
-        // Create a printable version of the calendar
-        let printController = UIPrintInteractionController.shared
-        
-        let printInfo = UIPrintInfo(dictionary: nil)
-        printInfo.outputType = .general
-        printInfo.jobName = "Schedule - \(monthYearString(from: currentMonth))"
-        printController.printInfo = printInfo
-        
-                 // Create HTML content for printing
-         let htmlContent = generatePrintHTML()
-         let formatter = UIMarkupTextPrintFormatter(markupText: htmlContent)
-         formatter.perPageContentInsets = UIEdgeInsets(top: 30, left: 30, bottom: 30, right: 30)
-        printController.printFormatter = formatter
-        
-        // Present print dialog
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = windowScene.windows.first,
-           let _ = window.rootViewController {
-            printController.present(animated: true, completionHandler: nil)
+
+    
+
+}
+
+// MARK: - Shared Print Functions
+func printCalendar(dailySchedules: [DailyScheduleRecord], monthlyNotes: [MonthlyNotesRecord], currentMonth: Date) {
+    // Create a printable version of the calendar
+    let printController = UIPrintInteractionController.shared
+    
+    let printInfo = UIPrintInfo(dictionary: nil)
+    printInfo.outputType = .general
+    printInfo.jobName = "Schedule - \(monthYearString(from: currentMonth))"
+    printController.printInfo = printInfo
+    
+    // Create HTML content for printing
+    let htmlContent = generatePrintHTML(dailySchedules: dailySchedules, monthlyNotes: monthlyNotes, currentMonth: currentMonth)
+    let formatter = UIMarkupTextPrintFormatter(markupText: htmlContent)
+    formatter.perPageContentInsets = UIEdgeInsets(top: 30, left: 30, bottom: 30, right: 30)
+    printController.printFormatter = formatter
+    
+    // Present print dialog
+    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+       let window = windowScene.windows.first,
+       let _ = window.rootViewController {
+        printController.present(animated: true, completionHandler: nil)
+    }
+}
+
+func generatePrintHTML(dailySchedules: [DailyScheduleRecord], monthlyNotes: [MonthlyNotesRecord], currentMonth: Date) -> String {
+    let monthYear = monthYearString(from: currentMonth)
+    
+    var html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; font-size: 12px; }
+            .header { text-align: center; font-size: 24px; font-weight: bold; margin-bottom: 20px; }
+            .monthly-notes { margin-bottom: 20px; }
+            .monthly-notes h3 { font-size: 16px; margin-bottom: 10px; color: #333; }
+            .note-item { margin: 5px 0; padding: 8px; border-radius: 4px; font-size: 12px; }
+            .note-blue { background-color: rgba(0, 122, 255, 0.15); border-left: 4px solid #007AFF; }
+            .note-green { background-color: rgba(52, 199, 89, 0.15); border-left: 4px solid #34C759; }
+            .note-orange { background-color: rgba(255, 149, 0, 0.15); border-left: 4px solid #FF9500; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th { background-color: #f8f8f8; padding: 8px; text-align: center; font-weight: bold; border: 1px solid #ddd; font-size: 13px; }
+            td { border: 1px solid #ddd; padding: 6px; vertical-align: top; height: 90px; width: 14.28%; }
+            .day-number { font-weight: bold; font-size: 14px; margin-bottom: 4px; color: #333; }
+            .schedule-line { font-size: 9px; margin: 2px 0; line-height: 1.3; }
+            .line-blue { color: #007AFF; font-weight: 500; }
+            .line-green { color: #34C759; font-weight: 500; }
+            .line-orange { color: #FF9500; font-weight: 500; }
+            .no-schedule { font-style: italic; color: #999; font-size: 9px; }
+            .weekend { background-color: #f9f9f9; }
+        </style>
+    </head>
+    <body>
+        <div class="header">\(monthYear)</div>
+    """
+    
+    // Add monthly notes if they exist
+    if let note = monthlyNotes.first(where: { $0.month == Calendar.current.component(.month, from: currentMonth) && $0.year == Calendar.current.component(.year, from: currentMonth) }),
+       !(note.line1 ?? "").isEmpty || !(note.line2 ?? "").isEmpty || !(note.line3 ?? "").isEmpty {
+        html += """
+        <div class="monthly-notes">
+            <h3>Monthly Notes</h3>
+        """
+        if let l1 = note.line1, !l1.isEmpty {
+            html += "<div class=\"note-item note-blue\">\(l1)</div>"
         }
+        if let l2 = note.line2, !l2.isEmpty {
+            html += "<div class=\"note-item note-green\">\(l2)</div>"
+        }
+        if let l3 = note.line3, !l3.isEmpty {
+            html += "<div class=\"note-item note-orange\">\(l3)</div>"
+        }
+        html += "</div>"
     }
     
-    private func generatePrintHTML() -> String {
-        let monthYear = monthYearString(from: currentMonth)
-        let days = daysInMonth(currentMonth)
-        let chunkedDays = days.chunked(into: 7)
+    // Add calendar table with proper grid layout
+    html += """
+        <table>
+            <tr>
+                <th>Sunday</th>
+                <th>Monday</th>
+                <th>Tuesday</th>
+                <th>Wednesday</th>
+                <th>Thursday</th>
+                <th>Friday</th>
+                <th>Saturday</th>
+            </tr>
+    """
+    
+    // Get first day of month and calculate starting position
+    let calendar = Calendar.current
+    let firstDayOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonth))!
+    let startWeekday = calendar.component(.weekday, from: firstDayOfMonth) // 1 = Sunday
+    let daysInMonth = calendar.range(of: .day, in: .month, for: currentMonth)!.count
+    
+    var dayCounter = 1
+    var weekRow = 0
+    
+    // Create calendar rows
+    while dayCounter <= daysInMonth {
+        html += "<tr>"
         
-        var html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-                         <style>
-                 body { font-family: Arial, sans-serif; margin: 0; padding: 10px; font-size: 12px; }
-                 .header { text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 15px; }
-                 .monthly-notes { margin-bottom: 15px; }
-                 .monthly-notes h3 { font-size: 14px; margin-bottom: 8px; }
-                 .note-item { margin: 3px 0; padding: 5px; border-radius: 3px; font-size: 11px; }
-                 .note-blue { background-color: rgba(0, 122, 255, 0.1); }
-                 .note-green { background-color: rgba(52, 199, 89, 0.1); }
-                 .note-orange { background-color: rgba(255, 149, 0, 0.1); }
-                 table { width: 100%; border-collapse: collapse; margin-top: 5px; }
-                 th { background-color: #f5f5f5; padding: 4px; text-align: center; font-weight: bold; border: 1px solid #ddd; font-size: 11px; }
-                 td { border: 1px solid #ddd; padding: 4px; vertical-align: top; height: 70px; width: 14.28%; }
-                 .day-number { font-weight: bold; font-size: 11px; margin-bottom: 3px; }
-                 .schedule-line { font-size: 8px; margin: 1px 0; line-height: 1.2; }
-                 .line-blue { color: #007AFF; }
-                 .line-green { color: #34C759; }
-                 .line-orange { color: #FF9500; }
-                 .no-schedule { font-style: italic; color: #999; font-size: 8px; }
-             </style>
-        </head>
-        <body>
-            <div class="header">\(monthYear)</div>
-        """
-        
-        // Add monthly notes if they exist
-        if let note = monthlyNotes.first(where: { $0.month == Calendar.current.component(.month, from: currentMonth) && $0.year == Calendar.current.component(.year, from: currentMonth) }),
-           !(note.line1 ?? "").isEmpty || !(note.line2 ?? "").isEmpty || !(note.line3 ?? "").isEmpty {
-            html += """
-            <div class="monthly-notes">
-                <h3>Monthly Notes</h3>
-            """
-            if let l1 = note.line1, !l1.isEmpty {
-                html += "<div class=\"note-item note-blue\">\(l1)</div>"
-            }
-            if let l2 = note.line2, !l2.isEmpty {
-                html += "<div class=\"note-item note-green\">\(l2)</div>"
-            }
-            if let l3 = note.line3, !l3.isEmpty {
-                html += "<div class=\"note-item note-orange\">\(l3)</div>"
-            }
-            html += "</div>"
-        }
-        
-        // Add calendar table
-        html += """
-            <table>
-                <tr>
-                    <th>Sunday</th>
-                    <th>Monday</th>
-                    <th>Tuesday</th>
-                    <th>Wednesday</th>
-                    <th>Thursday</th>
-                    <th>Friday</th>
-                    <th>Saturday</th>
-                </tr>
-        """
-        
-        for weekIndex in 0..<chunkedDays.count {
-            html += "<tr>"
-            for dayIndex in 0..<7 {
-                if weekIndex * 7 + dayIndex < days.count {
-                    let date = days[weekIndex * 7 + dayIndex]
-                    let dayNumber = Calendar.current.component(.day, from: date)
-                    let schedule = dailySchedules.first(where: { 
-                        guard let scheduleDate = $0.date else { return false }
-                        return Calendar.current.isDate(scheduleDate, inSameDayAs: date)
-                    })
-                    
-                    html += "<td>"
-                    html += "<div class=\"day-number\">\(dayNumber)</div>"
-                    
-                    if let s = schedule {
-                        if let l1 = s.line1, !l1.isEmpty {
-                            html += "<div class=\"schedule-line line-blue\">\(l1)</div>"
-                        }
-                        if let l2 = s.line2, !l2.isEmpty {
-                            html += "<div class=\"schedule-line line-green\">\(l2)</div>"
-                        }
-                        if let l3 = s.line3, !l3.isEmpty {
-                            html += "<div class=\"schedule-line line-orange\">\(l3)</div>"
-                        }
-                    } else {
-                        html += "<div class=\"no-schedule\">No schedule</div>"
+        for dayOfWeek in 1...7 { // 1 = Sunday, 7 = Saturday
+            let isWeekend = dayOfWeek == 1 || dayOfWeek == 7
+            let weekendClass = isWeekend ? " weekend" : ""
+            
+            if (weekRow == 0 && dayOfWeek < startWeekday) || dayCounter > daysInMonth {
+                // Empty cell for days before month starts or after month ends
+                html += "<td class=\"\(weekendClass)\"></td>"
+            } else {
+                // Day with schedule data
+                let dayDate = calendar.date(byAdding: .day, value: dayCounter - 1, to: firstDayOfMonth)!
+                let schedule = dailySchedules.first(where: { 
+                    guard let scheduleDate = $0.date else { return false }
+                    return calendar.isDate(scheduleDate, inSameDayAs: dayDate)
+                })
+                
+                html += "<td class=\"\(weekendClass)\">"
+                html += "<div class=\"day-number\">\(dayCounter)</div>"
+                
+                if let s = schedule {
+                    if let l1 = s.line1, !l1.isEmpty {
+                        html += "<div class=\"schedule-line line-blue\">OS: \(l1)</div>"
                     }
-                    html += "</td>"
+                    if let l2 = s.line2, !l2.isEmpty {
+                        html += "<div class=\"schedule-line line-green\">CL: \(l2)</div>"
+                    }
+                    if let l3 = s.line3, !l3.isEmpty {
+                        html += "<div class=\"schedule-line line-orange\">OFF: \(l3)</div>"
+                    }
                 } else {
-                    html += "<td></td>"
+                    html += "<div class=\"no-schedule\">No schedule</div>"
                 }
+                html += "</td>"
+                dayCounter += 1
             }
-            html += "</tr>"
         }
         
-        html += """
-            </table>
-        </body>
-        </html>
-        """
+        html += "</tr>"
+        weekRow += 1
         
-        return html
+        // Safety check to prevent infinite loop
+        if weekRow > 6 { break }
     }
+    
+    html += """
+        </table>
+    </body>
+    </html>
+    """
+    
+    return html
+}
+
+// Helper functions for print functionality
+func monthYearString(from date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "MMMM yyyy"
+    return formatter.string(from: date)
+}
+
+func daysInMonth(_ date: Date) -> [Date] {
+    let calendar = Calendar.current
+    let range = calendar.range(of: .day, in: .month, for: date)!
+    let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: date))!
+    return range.compactMap { day in calendar.date(byAdding: .day, value: day - 1, to: firstDay) }
 }
 
 // Helper extension for chunking arrays
