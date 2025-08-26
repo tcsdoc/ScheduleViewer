@@ -3,11 +3,12 @@
 //  ScheduleViewer
 //
 //  Created by mark on 7/5/25.
-//  Updated for Core Data + CloudKit Private Database integration
+//  Updated for CloudKit Private Database with Sharing support
 //
 
 import Foundation
 import CloudKit
+import SwiftUI
 
 @MainActor
 class CloudKitManager: ObservableObject {
@@ -15,16 +16,24 @@ class CloudKitManager: ObservableObject {
     
     private let container: CKContainer
     private let privateDatabase: CKDatabase
+    private let publicDatabase: CKDatabase
     
     @Published var dailySchedules: [DailyScheduleRecord] = []
     @Published var monthlyNotes: [MonthlyNotesRecord] = []
     @Published var isLoading = false
+    @Published var hasSharedData = false
     
-    init() {
-        container = CKContainer(identifier: "iCloud.com.gulfcoast.ProviderCalendar")
-        privateDatabase = container.privateCloudDatabase
+    private init() {
+        self.container = CKContainer(identifier: "iCloud.com.gulfcoast.ProviderCalendar")
+        self.privateDatabase = container.privateCloudDatabase
+        self.publicDatabase = container.publicCloudDatabase
         
-        // Listen for CloudKit share acceptance notifications
+        #if DEBUG
+        print("🚀 ScheduleViewer CloudKitManager initialized for cross-Apple ID sharing")
+        print("📊 Container: iCloud.com.gulfcoast.ProviderCalendar")
+        print("🔗 Using private database with CloudKit sharing (matching Provider Schedule Calendar)")
+        #endif
+        
         setupShareNotifications()
     }
     
@@ -36,466 +45,569 @@ class CloudKitManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             #if DEBUG
-            print("🔄 CloudKit account changed - checking for new shares")
+            print("🔄 CloudKit account changed - checking for data")
             #endif
-            self?.fetchAllData()
+            Task {
+                await self?.fetchAllData()
+            }
         }
     }
     
-    nonisolated func fetchAllData() {
-        Task { @MainActor in
-            await performFetchAllData()
-        }
+    func fetchAllData() async {
+        await performFetchAllData()
     }
     
-    @MainActor
     private func performFetchAllData() async {
-        isLoading = true
+        self.isLoading = true
         
-        // Check CloudKit account status first (async version)
+        #if DEBUG
+        print("🔍 === ScheduleViewer: Cross-Apple ID Share Detection ===")
+        #endif
+        
+        // Check CloudKit account status first
         do {
             let status = try await container.accountStatus()
             #if DEBUG
             switch status {
             case .available:
-                print("✅ CloudKit account available in ScheduleViewer")
+                print("✅ CloudKit account available")
             case .noAccount:
-                print("❌ No iCloud account in ScheduleViewer")
+                print("❌ No iCloud account")
             case .restricted:
-                print("❌ iCloud restricted in ScheduleViewer")
+                print("❌ iCloud restricted")
             case .couldNotDetermine:
-                print("❌ Could not determine iCloud status in ScheduleViewer")
+                print("❌ Could not determine iCloud status")
             case .temporarilyUnavailable:
-                print("⚠️ iCloud temporarily unavailable in ScheduleViewer")
+                print("⚠️ iCloud temporarily unavailable")
             @unknown default:
-                print("❓ Unknown iCloud status in ScheduleViewer")
+                print("❓ Unknown iCloud status")
             }
             #endif
+            
+            guard status == .available else {
+                #if DEBUG
+                print("❌ CloudKit not available")
+                #endif
+                self.isLoading = false
+                return
+            }
+            
+            // Check all zones for data in private database (including shared zones)
+            await checkAllZonesForData()
+            
+            // DISABLED: Provider Schedule Calendar now uses PRIVATE database with custom zones  
+            // No more public database checking needed - all data is private and shared properly
+            // await checkPublicDatabaseForData_DISABLED()
+            
         } catch {
             #if DEBUG
             print("❌ Error checking CloudKit account status: \(error)")
             #endif
         }
         
-        // Use async/await pattern for cleaner code
-        async let dailySchedules = fetchAllDailySchedules()
-        async let monthlyNotes = fetchAllMonthlyNotes()
-        
-        do {
-            let (schedules, notes) = try await (dailySchedules, monthlyNotes)
-            
-            self.dailySchedules = schedules
-            self.monthlyNotes = notes
-            
-            #if DEBUG
-            print("✅ Fetched \(schedules.count) daily schedules and \(notes.count) monthly notes")
-            #endif
-        } catch {
-            #if DEBUG
-            print("❌ Error fetching data: \(error)")
-            #endif
-        }
-        
-        #if DEBUG
-        print("🏁 ScheduleViewer: Data fetch completed")
-        #endif
-        isLoading = false
+        self.isLoading = false
     }
     
-    private func fetchAllDailySchedules() async throws -> [DailyScheduleRecord] {
-        var allSchedules: [DailyScheduleRecord] = []
-        
-        // Get all zones from private database (includes both local and shared zones)
-        let privateZones = try await privateDatabase.allRecordZones()
-        
+    /// Check all CloudKit zones for schedule data (private + shared databases)
+    private func checkAllZonesForData() async {
         #if DEBUG
-        print("🔍 Fetching daily schedules from \(privateZones.count) private zones...")
-        #endif
-        
-        for zone in privateZones {
-            #if DEBUG
-            print("   Checking private zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
-            #endif
-            
-            // Create a date range predicate to ensure we get data well into the future
-            let startDate = Calendar.current.date(byAdding: .year, value: -1, to: Date()) ?? Date()
-            let endDate = Calendar.current.date(byAdding: .year, value: 2, to: Date()) ?? Date()
-            let datePredicate = NSPredicate(format: "CD_date >= %@ AND CD_date <= %@", startDate as NSDate, endDate as NSDate)
-            
-            let query = CKQuery(recordType: "CD_DailySchedule", predicate: datePredicate)
-            query.sortDescriptors = [NSSortDescriptor(key: "CD_date", ascending: true)]
-            
-            do {
-                let (records, _) = try await privateDatabase.records(matching: query, inZoneWith: zone.zoneID, resultsLimit: 500)
-                
-                let scheduleRecords = records.compactMap { (_, result) -> DailyScheduleRecord? in
-                    guard let record = try? result.get() else { return nil }
-                    return DailyScheduleRecord(from: record)
-                }
-                
-                allSchedules.append(contentsOf: scheduleRecords)
-                
-                #if DEBUG
-                print("   ✅ Found \(scheduleRecords.count) daily schedules in private zone \(zone.zoneID.zoneName)")
-                
-                // Log date range for debugging
-                let sortedSchedules = scheduleRecords.sorted { ($0.date ?? Date.distantPast) < ($1.date ?? Date.distantPast) }
-                if let firstDate = sortedSchedules.first?.date, let lastDate = sortedSchedules.last?.date {
-                    let formatter = DateFormatter()
-                    formatter.dateStyle = .medium
-                    print("     📅 Date range: \(formatter.string(from: firstDate)) to \(formatter.string(from: lastDate))")
-                }
-                
-                // Log some sample records for debugging (non-sensitive data only)
-                for schedule in scheduleRecords.prefix(3) {
-                    let dateStr = schedule.date?.description ?? "No date"
-                    let line1 = schedule.line1 ?? "No data"
-                    print("     📅 Private Schedule: \(dateStr) - \(line1)")
-                }
-                #endif
-            } catch {
-                #if DEBUG
-                print("   ❌ Error fetching from private zone \(zone.zoneID.zoneName): \(error)")
-                #endif
-            }
-        }
-        
-        // Also check shared database
-        let sharedZones = try await container.sharedCloudDatabase.allRecordZones()
-        
-        #if DEBUG
-        print("🔍 Fetching daily schedules from \(sharedZones.count) shared zones...")
-        #endif
-        
-        for zone in sharedZones {
-            #if DEBUG
-            print("   Checking shared zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
-            #endif
-            
-            // Create a date range predicate to ensure we get data well into the future
-            let startDate = Calendar.current.date(byAdding: .year, value: -1, to: Date()) ?? Date()
-            let endDate = Calendar.current.date(byAdding: .year, value: 2, to: Date()) ?? Date()
-            let datePredicate = NSPredicate(format: "CD_date >= %@ AND CD_date <= %@", startDate as NSDate, endDate as NSDate)
-            
-            let query = CKQuery(recordType: "CD_DailySchedule", predicate: datePredicate)
-            query.sortDescriptors = [NSSortDescriptor(key: "CD_date", ascending: true)]
-            
-            do {
-                let (records, _) = try await container.sharedCloudDatabase.records(matching: query, inZoneWith: zone.zoneID, resultsLimit: 500)
-                
-                let scheduleRecords = records.compactMap { (_, result) -> DailyScheduleRecord? in
-                    guard let record = try? result.get() else { return nil }
-                    return DailyScheduleRecord(from: record)
-                }
-                
-                allSchedules.append(contentsOf: scheduleRecords)
-                
-                #if DEBUG
-                print("   ✅ Found \(scheduleRecords.count) daily schedules in shared zone \(zone.zoneID.zoneName)")
-                
-                // Log date range for debugging
-                let sortedSchedules = scheduleRecords.sorted { ($0.date ?? Date.distantPast) < ($1.date ?? Date.distantPast) }
-                if let firstDate = sortedSchedules.first?.date, let lastDate = sortedSchedules.last?.date {
-                    let formatter = DateFormatter()
-                    formatter.dateStyle = .medium
-                    print("     📅 Date range: \(formatter.string(from: firstDate)) to \(formatter.string(from: lastDate))")
-                }
-                
-                // Log some sample records for debugging (non-sensitive data only)
-                for schedule in scheduleRecords.prefix(3) {
-                    let dateStr = schedule.date?.description ?? "No date"
-                    let line1 = schedule.line1 ?? "No data"
-                    print("     📅 Shared Schedule: \(dateStr) - \(line1)")
-                }
-                #endif
-            } catch {
-                #if DEBUG
-                print("   ❌ Error fetching from shared zone \(zone.zoneID.zoneName): \(error)")
-                #endif
-            }
-        }
-        
-        return allSchedules
-    }
-    
-    private func fetchAllMonthlyNotes() async throws -> [MonthlyNotesRecord] {
-        var allNotes: [MonthlyNotesRecord] = []
-        
-        // Get all zones from private database (includes both local and shared zones)
-        let privateZones = try await privateDatabase.allRecordZones()
-        
-        #if DEBUG
-        print("🔍 Fetching monthly notes from \(privateZones.count) private zones...")
-        #endif
-        
-        for zone in privateZones {
-            #if DEBUG
-            print("   Checking private zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
-            #endif
-            
-            let query = CKQuery(recordType: "CD_MonthlyNotes", predicate: NSPredicate(value: true))
-            query.sortDescriptors = [NSSortDescriptor(key: "CD_year", ascending: true), NSSortDescriptor(key: "CD_month", ascending: true)]
-            
-            do {
-                let (records, _) = try await privateDatabase.records(matching: query, inZoneWith: zone.zoneID, resultsLimit: 100)
-                
-                let notesRecords = records.compactMap { (_, result) -> MonthlyNotesRecord? in
-                    guard let record = try? result.get() else { return nil }
-                    return MonthlyNotesRecord(from: record)
-                }
-                
-                allNotes.append(contentsOf: notesRecords)
-                
-                #if DEBUG
-                print("   ✅ Found \(notesRecords.count) monthly notes in private zone \(zone.zoneID.zoneName)")
-                
-                // Log some sample records for debugging (non-sensitive data only)
-                for note in notesRecords.prefix(2) {
-                    let line1 = note.line1 ?? "No data"
-                    print("     📝 Private Note: \(note.month)/\(note.year) - \(line1)")
-                }
-                #endif
-            } catch {
-                #if DEBUG
-                print("   ❌ Error fetching monthly notes from private zone \(zone.zoneID.zoneName): \(error)")
-                #endif
-            }
-        }
-        
-        // Also check shared database
-        let sharedZones = try await container.sharedCloudDatabase.allRecordZones()
-        
-        #if DEBUG
-        print("🔍 Fetching monthly notes from \(sharedZones.count) shared zones...")
-        #endif
-        
-        for zone in sharedZones {
-            #if DEBUG
-            print("   Checking shared zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
-            #endif
-            
-            let query = CKQuery(recordType: "CD_MonthlyNotes", predicate: NSPredicate(value: true))
-            query.sortDescriptors = [NSSortDescriptor(key: "CD_year", ascending: true), NSSortDescriptor(key: "CD_month", ascending: true)]
-            
-            do {
-                let (records, _) = try await container.sharedCloudDatabase.records(matching: query, inZoneWith: zone.zoneID, resultsLimit: 100)
-                
-                let notesRecords = records.compactMap { (_, result) -> MonthlyNotesRecord? in
-                    guard let record = try? result.get() else { return nil }
-                    return MonthlyNotesRecord(from: record)
-                }
-                
-                allNotes.append(contentsOf: notesRecords)
-                
-                #if DEBUG
-                print("   ✅ Found \(notesRecords.count) monthly notes in shared zone \(zone.zoneID.zoneName)")
-                
-                // Log some sample records for debugging (non-sensitive data only)
-                for note in notesRecords.prefix(2) {
-                    let line1 = note.line1 ?? "No data"
-                    print("     📝 Shared Note: \(note.month)/\(note.year) - \(line1)")
-                }
-                #endif
-            } catch {
-                #if DEBUG
-                print("   ❌ Error fetching monthly notes from shared zone \(zone.zoneID.zoneName): \(error)")
-                #endif
-            }
-        }
-        
-        return allNotes
-    }
-    
-    func checkForAcceptedShares() async {
-        #if DEBUG
-        print("🔍 ScheduleViewer: Checking for accepted CloudKit shares...")
+        print("🔍 Checking all CloudKit zones for schedule data...")
         #endif
         
         do {
-            // Check private database for shared zones (Core Data + CloudKit puts shared records here)
-            #if DEBUG
-            print("🔍 Checking private database for shared zones...")
-            #endif
+            // Get all zones from private database  
             let privateZones = try await privateDatabase.allRecordZones()
+            
+            // Also check shared database (where accepted shares appear)
+            let sharedZones = try await container.sharedCloudDatabase.allRecordZones()
+            
+            let allZones = privateZones + sharedZones
+            
             #if DEBUG
-            print("📊 Found \(privateZones.count) zones in private database:")
+            print("📊 Found \(privateZones.count) zones in PRIVATE database")
+            print("📊 Found \(sharedZones.count) zones in SHARED database") 
+            print("📊 Total zones to check: \(allZones.count)")
+            print("🔍 Looking for CloudKit record types: 'CD_DailySchedule' and 'CD_MonthlyNotes'")
             #endif
             
-            for zone in privateZones {
+            var allDailySchedules: [DailyScheduleRecord] = []
+            var allMonthlyNotes: [MonthlyNotesRecord] = []
+            var foundSharedData = false
+            
+            for zone in allZones {
                 #if DEBUG
                 print("   Zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
+                
+                // Check if this is a shared zone from another Apple ID
+                if zone.zoneID.ownerName != "__defaultOwner__" {
+                    print("   🔗 *** SHARED ZONE DETECTED! ***")
+                    print("   🔗 This zone is shared from: \(zone.zoneID.ownerName)")
+                    
+                    // Check if this is the specific zone we want from tcsdoc@mac.com
+                    // Look for custom zones (will have format like "user_com.gulfcoast.ProviderCalendar")
+                    if zone.zoneID.ownerName.contains("tcsdoc") || 
+                       zone.zoneID.zoneName.contains("user_") {
+                        print("   ✅ Found target zone from tcsdoc@mac.com!")
+                        print("   🔒 Zone type: \(zone.zoneID.zoneName.contains("user_") ? "Custom Privacy Zone" : "Standard Zone")")
+                    } else {
+                        print("   ⚠️  This is a different user's zone - skipping")
+                        print("   ⚠️  Looking for zones from tcsdoc@mac.com")
+                        continue  // Skip this zone
+                    }
+                    foundSharedData = true
+                } else {
+                    print("   📱 This is your local zone")
+                }
                 #endif
                 
-                // Check if this is a shared zone (owner is different from current user)
-                if zone.zoneID.ownerName != "__defaultOwner__" {
+                // Fetch daily schedules from this zone
+                let dailyQuery = CKQuery(recordType: "CD_DailySchedule", predicate: NSPredicate(value: true))
+                dailyQuery.sortDescriptors = [NSSortDescriptor(key: "CD_date", ascending: true)]
+                
+                #if DEBUG
+                print("   🔍 Searching for CD_DailySchedule records in zone \(zone.zoneID.zoneName)...")
+                #endif
+                
+                // Use correct database based on zone location
+                let database = privateZones.contains(where: { $0.zoneID == zone.zoneID }) ? privateDatabase : container.sharedCloudDatabase
+                
+                do {
+                    let (dailyRecords, _) = try await database.records(matching: dailyQuery, inZoneWith: zone.zoneID, resultsLimit: 500)
+                    
                     #if DEBUG
-                    print("   🔗 This appears to be a SHARED zone!")
-                    #endif
-                    
-                    // Try to fetch calendar records from this shared zone
-                    let query = CKQuery(recordType: "CD_DailySchedule", predicate: NSPredicate(value: true))
-                    
-                    do {
-                        let (records, _) = try await privateDatabase.records(matching: query, inZoneWith: zone.zoneID, resultsLimit: 5)
-                        #if DEBUG
-                        print("   ✅ Found \(records.count) CD_DailySchedule records in shared zone!")
-                        #endif
-                        
-                        #if DEBUG
-                        for (_, result) in records {
+                    print("   📊 Raw query returned \(dailyRecords.count) daily schedule records")
+                    if dailyRecords.count > 0 {
+                        print("   📋 Sample records found:")
+                        var recordCount = 0
+                        for (recordID, result) in dailyRecords {
+                            recordCount += 1
+                            print("     Record \(recordCount): ID = \(recordID)")
                             if let record = try? result.get() {
-                                let date = record["CD_date"] as? Date ?? Date()
-                                let line1 = record["CD_line1"] as? String ?? ""
-                                print("   📅 Shared Schedule: \(date) - \(line1)")
+                                print("       Date: \(record["CD_date"] as? Date ?? Date())")
+                                print("       Line1: \(record["CD_line1"] as? String ?? "nil")")
+                                print("       Line2: \(record["CD_line2"] as? String ?? "nil")")
+                                print("       Line3: \(record["CD_line3"] as? String ?? "nil")")
+                                if recordCount >= 3 { break }
                             }
                         }
-                        #endif
-                    } catch {
-                        #if DEBUG
-                        print("   ❌ Error querying shared zone \(zone.zoneID.zoneName): \(error)")
-                        #endif
                     }
-                } else {
+                    #endif
+                    
+                    for (_, result) in dailyRecords {
+                        if let record = try? result.get() {
+                            let schedule = DailyScheduleRecord(
+                                date: (record["CD_date"] as? Date) ?? Date(),
+                                line1: record["CD_line1"] as? String,
+                                line2: record["CD_line2"] as? String,
+                                line3: record["CD_line3"] as? String
+                            )
+                            allDailySchedules.append(schedule)
+                        }
+                    }
+                    
                     #if DEBUG
-                    print("   ℹ️ This is a local zone (owner: __defaultOwner__)")
+                    print("   ✅ Successfully processed \(dailyRecords.count) daily schedules in zone \(zone.zoneID.zoneName)")
+                    #endif
+                    
+                } catch {
+                    #if DEBUG
+                    print("   ❌ Error fetching daily schedules from zone \(zone.zoneID.zoneName): \(error)")
+                    #endif
+                }
+                
+                // Fetch monthly notes from this zone
+                let monthlyQuery = CKQuery(recordType: "CD_MonthlyNotes", predicate: NSPredicate(value: true))
+                monthlyQuery.sortDescriptors = [NSSortDescriptor(key: "CD_year", ascending: true)]
+                
+                do {
+                    let (monthlyRecords, _) = try await database.records(matching: monthlyQuery, inZoneWith: zone.zoneID, resultsLimit: 100)
+                    
+                    for (_, result) in monthlyRecords {
+                        if let record = try? result.get() {
+                            let note = MonthlyNotesRecord(
+                                month: (record["CD_month"] as? Int64).map(Int.init) ?? 1,
+                                year: (record["CD_year"] as? Int64).map(Int.init) ?? 2025,
+                                line1: record["CD_line1"] as? String,
+                                line2: record["CD_line2"] as? String,
+                                line3: record["CD_line3"] as? String
+                            )
+                            allMonthlyNotes.append(note)
+                        }
+                    }
+                    
+                    #if DEBUG
+                    print("   ✅ Found \(monthlyRecords.count) monthly notes in zone \(zone.zoneID.zoneName)")
+                    #endif
+                    
+                } catch {
+                    #if DEBUG
+                    print("   ❌ Error fetching monthly notes from zone \(zone.zoneID.zoneName): \(error)")
                     #endif
                 }
             }
             
-            // Also check the shared database itself
+            // Update the published properties (already on main actor)
+            self.dailySchedules = allDailySchedules.sorted { $0.date < $1.date }
+            self.monthlyNotes = allMonthlyNotes.sorted { $0.year < $1.year || ($0.year == $1.year && $0.month < $1.month) }
+            self.hasSharedData = foundSharedData
+            
             #if DEBUG
-            print("🔍 Also checking shared database...")
-            #endif
-            let sharedZones = try await container.sharedCloudDatabase.allRecordZones()
-            #if DEBUG
-            print("📊 Found \(sharedZones.count) zones in shared database:")
+            print("📊 Total data loaded:")
+            print("   Daily schedules: \(allDailySchedules.count)")
+            print("   Monthly notes: \(allMonthlyNotes.count)")
+            
+            if allDailySchedules.count == 0 {
+                print("❌ No schedule data found")
+                print("💡 For cross-Apple ID sharing with tcsdoc@mac.com:")
+                print("💡 1. Get a NEW CUSTOM ZONE share URL from tcsdoc@mac.com (Provider Schedule Calendar)")
+                print("💡 2. Use 'Accept Share' button to paste the share URL")
+                print("💡 3. Make sure the share is from tcsdoc@mac.com's CUSTOM ZONE (privacy-focused)")
+                print("💡 4. Wait for CloudKit to sync the shared zone")
+                print("💡 5. NEW: Provider Schedule Calendar now uses custom zones for data isolation")
+                print("💡 Current zones found: \(allZones.map { $0.zoneID.ownerName }.joined(separator: ", "))")
+                print("💡 Zone names: \(allZones.map { $0.zoneID.zoneName }.joined(separator: ", "))")
+                print("💡 Private zones: \(privateZones.count), Shared zones: \(sharedZones.count)")
+            }
+            print("=== Data Sync Complete ===")
             #endif
             
-            for zone in sharedZones {
+        } catch {
+            #if DEBUG
+            print("❌ Error checking CloudKit zones: \(error)")
+            #endif
+        }
+    }
+    
+    /// Check public database for schedule data (cross-Apple ID sharing)
+    /// Re-enabled to check if Provider Schedule Calendar is actually using public database
+    private func checkPublicDatabaseForData_DISABLED() async {
+        #if DEBUG
+        print("🌐 === Checking Public Database for Cross-Apple ID Data ===")
+        print("🌐 Provider Schedule Calendar may use public database for sharing")
+        #endif
+        
+        do {
+            // Check for daily schedules in public database
+            let dailyQuery = CKQuery(recordType: "CD_DailySchedule", predicate: NSPredicate(value: true))
+            dailyQuery.sortDescriptors = [NSSortDescriptor(key: "CD_date", ascending: true)]
+            
+            #if DEBUG
+            print("🌐 Searching public database for CD_DailySchedule records...")
+            #endif
+            
+            let (publicDailyRecords, _) = try await publicDatabase.records(matching: dailyQuery, resultsLimit: 500)
+            
+            #if DEBUG
+            print("🌐 Found \(publicDailyRecords.count) daily schedules in public database")
+            if publicDailyRecords.count > 0 {
+                print("🌐 📋 Sample public records:")
+                var recordCount = 0
+                for (recordID, result) in publicDailyRecords {
+                    recordCount += 1
+                    print("     Public Record \(recordCount): ID = \(recordID)")
+                    if let record = try? result.get() {
+                        print("       Date: \(record["CD_date"] as? Date ?? Date())")
+                        print("       Line1: \(record["CD_line1"] as? String ?? "nil")")
+                        print("       Line2: \(record["CD_line2"] as? String ?? "nil")")
+                        print("       Line3: \(record["CD_line3"] as? String ?? "nil")")
+                        if recordCount >= 3 { break }
+                    }
+                }
+            }
+            #endif
+            
+            // Check for monthly notes in public database
+            let monthlyQuery = CKQuery(recordType: "CD_MonthlyNotes", predicate: NSPredicate(value: true))
+            monthlyQuery.sortDescriptors = [NSSortDescriptor(key: "CD_year", ascending: true)]
+            
+            let (publicMonthlyRecords, _) = try await publicDatabase.records(matching: monthlyQuery, resultsLimit: 100)
+            
+            #if DEBUG
+            print("🌐 Found \(publicMonthlyRecords.count) monthly notes in public database")
+            #endif
+            
+            // Process public database records if found
+            if publicDailyRecords.count > 0 || publicMonthlyRecords.count > 0 {
+                var publicDailySchedules: [DailyScheduleRecord] = []
+                var publicMonthlyNotes: [MonthlyNotesRecord] = []
+                
+                // Process daily schedules
+                for (_, result) in publicDailyRecords {
+                    if let record = try? result.get() {
+                        let schedule = DailyScheduleRecord(
+                            date: (record["CD_date"] as? Date) ?? Date(),
+                            line1: record["CD_line1"] as? String,
+                            line2: record["CD_line2"] as? String,
+                            line3: record["CD_line3"] as? String
+                        )
+                        publicDailySchedules.append(schedule)
+                    }
+                }
+                
+                // Process monthly notes
+                for (_, result) in publicMonthlyRecords {
+                    if let record = try? result.get() {
+                        let note = MonthlyNotesRecord(
+                            month: (record["CD_month"] as? Int64).map(Int.init) ?? 1,
+                            year: (record["CD_year"] as? Int64).map(Int.init) ?? 2025,
+                            line1: record["CD_line1"] as? String,
+                            line2: record["CD_line2"] as? String,
+                            line3: record["CD_line3"] as? String
+                        )
+                        publicMonthlyNotes.append(note)
+                    }
+                }
+                
+                // Use public database data if no private shared zones were found
+                // Show public data for now to help with debugging
+                if self.dailySchedules.isEmpty && self.monthlyNotes.isEmpty {
+                    // For now, show ALL public data to see what's available
+                    self.dailySchedules = publicDailySchedules.sorted { $0.date < $1.date }
+                    self.monthlyNotes = publicMonthlyNotes.sorted { $0.year < $1.year || ($0.year == $1.year && $0.month < $1.month) }
+                    self.hasSharedData = true
+                    
+                    #if DEBUG
+                    print("🌐 ℹ️ Displaying PUBLIC database data (all users)")
+                    print("🌐 ℹ️ This includes data from all Provider Schedule Calendar users")
+                    print("🌐 ℹ️ Use 'Accept Share' to get specific shared data from tcsdoc@mac.com")
+                    #endif
+                }
+                
                 #if DEBUG
-                print("   Shared Zone: \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
+                print("🌐 ✅ Updated app with public database data:")
+                print("🌐   Daily schedules: \(publicDailySchedules.count)")
+                print("🌐   Monthly notes: \(publicMonthlyNotes.count)")
+                print("🌐 === Public Database Check Complete ===")
+                #endif
+            } else {
+                #if DEBUG
+                print("🌐 ❌ No data found in public database")
+                print("🌐 💡 Provider Schedule Calendar may not be using public database")
+                print("🌐 💡 Or data hasn't been shared to public database yet")
                 #endif
             }
             
         } catch {
             #if DEBUG
-            print("❌ Error checking for accepted shares: \(error)")
+            print("🌐 ❌ Error checking public database: \(error)")
+            if let ckError = error as? CKError {
+                print("🌐 ❌ CK Error code: \(ckError.code.rawValue)")
+                print("🌐 ❌ CK Error description: \(ckError.localizedDescription)")
+            }
             #endif
         }
     }
     
+    /// Accept CloudKit share from URL
     func acceptShare(from url: URL) {
         #if DEBUG
-        print("🔗 ScheduleViewer: Attempting to accept CloudKit share from URL")
+        print("🔗 === ScheduleViewer: Share Acceptance Started ===")
+        print("🔗 URL: \(url.absoluteString)")
+        print("🔗 Attempting to accept CloudKit share from URL")
         #endif
         
-        // Use the older completion-based API which is more reliable
-        container.fetchShareMetadata(with: url) { [weak self] shareMetadata, error in
+        // Validate URL format first - be more flexible with CloudKit share URLs
+        let urlString = url.absoluteString.lowercased()
+        let isValidCloudKitURL = urlString.contains("icloud.com") && urlString.contains("share")
+        
+        #if DEBUG
+        print("🔍 URL Validation Details:")
+        print("   Original URL: \(url.absoluteString)")
+        print("   Host: \(url.host ?? "nil")")
+        print("   Path: \(url.path)")
+        print("   Contains icloud.com: \(urlString.contains("icloud.com"))")
+        print("   Contains share: \(urlString.contains("share"))")
+        print("   Is valid: \(isValidCloudKitURL)")
+        #endif
+        
+        guard isValidCloudKitURL else {
+            #if DEBUG
+            print("❌ Invalid CloudKit share URL format")
+            print("❌ Expected: https://www.icloud.com/share/... or https://share.icloud.com/...")
+            print("❌ Received: \(url.absoluteString)")
+            print("❌ URL components - Host: \(url.host ?? "nil"), Path: \(url.path)")
+            print("💡 Common CloudKit share URL formats:")
+            print("💡 - https://www.icloud.com/share/...")
+            print("💡 - https://share.icloud.com/...")
+            print("💡 Make sure to copy the complete share URL")
+            #endif
+            return
+        }
+        
+        #if DEBUG
+        print("✅ URL format validated")
+        #endif
+        
+        // First get the share metadata from the URL
+        let fetchOperation = CKFetchShareMetadataOperation(shareURLs: [url])
+        fetchOperation.configuration.timeoutIntervalForRequest = 30
+        fetchOperation.configuration.timeoutIntervalForResource = 60
+        
+        fetchOperation.fetchShareMetadataResultBlock = { result in
             DispatchQueue.main.async {
-                if let error = error {
+                switch result {
+                case .success():
                     #if DEBUG
-                    print("❌ Failed to fetch share metadata: \(error)")
+                    print("✅ Share metadata fetch operation completed successfully")
                     #endif
-                    return
-                }
-                
-                guard let shareMetadata = shareMetadata else {
+                case .failure(let error):
                     #if DEBUG
-                    print("❌ No share metadata returned")
+                    print("❌ Share metadata fetch operation failed: \(error)")
+                    if let nsError = error as NSError? {
+                        print("❌ Error code: \(nsError.code)")
+                        print("❌ Error domain: \(nsError.domain)")
+                    }
                     #endif
-                    return
                 }
-                
-                #if DEBUG
-                print("✅ Fetched share metadata: \(shareMetadata)")
-                print("   Share title: \(shareMetadata.share[CKShare.SystemFieldKey.title] ?? "No title")")
-                if #available(iOS 16.0, *) {
-                    print("   Root record ID: \(shareMetadata.rootRecord?.recordID.recordName ?? "Unknown")")
-                } else {
-                    print("   Root record ID: \(shareMetadata.rootRecordID.recordName)")
-                }
-                #endif
-                
-                // Accept the share using modern iOS 15+ API
-                let acceptOperation = CKAcceptSharesOperation(shareMetadatas: [shareMetadata])
-                acceptOperation.qualityOfService = .userInitiated
-                
-                // Handle individual share results
-                acceptOperation.perShareResultBlock = { shareMetadata, shareResult in
-                    DispatchQueue.main.async {
-                        switch shareResult {
-                        case .success(let share):
-                            #if DEBUG
-                            print("✅ Individual share accepted: \(share.recordID)")
-                            #endif
-                        case .failure(let error):
-                            #if DEBUG
-                            print("❌ Failed to accept share: \(shareMetadata.share.recordID) - \(error)")
-                            #endif
-                        }
-                    }
-                }
-                
-                // Handle overall completion
-                acceptOperation.acceptSharesResultBlock = { [weak self] result in
-                    Task { @MainActor in
-                        switch result {
-                        case .success:
-                            #if DEBUG
-                            print("✅ CloudKit share acceptance operation completed successfully!")
-                            print("🔄 Refreshing data to show shared content...")
-                            #endif
-                            
-                            // Refresh data to show the newly shared content
-                            self?.fetchAllData()
-                            
-                        case .failure(let error):
-                            #if DEBUG
-                            print("❌ Failed to accept CloudKit shares: \(error)")
-                            #endif
-                        }
-                    }
-                }
-                
-                // Execute the operation
-                self?.container.add(acceptOperation)
             }
         }
+        
+        fetchOperation.perShareMetadataResultBlock = { shareURL, result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let shareMetadata):
+                    #if DEBUG
+                    print("✅ Got share metadata for URL: \(shareURL)")
+                    print("📊 Share metadata owner: \(shareMetadata.ownerIdentity.debugDescription)")
+                    print("📊 Share metadata participant status: \(shareMetadata.participantStatus)")
+                    print("📊 Share metadata container: \(shareMetadata.containerIdentifier)")
+                    #endif
+                    
+                    // Check if we're already a participant
+                    if shareMetadata.participantStatus == .accepted {
+                        #if DEBUG
+                        print("ℹ️ Share already accepted, reloading data...")
+                        #endif
+                        Task {
+                            await self.fetchAllData()
+                        }
+                        return
+                    }
+                    
+                    // Now accept the share using the metadata
+                    let acceptOperation = CKAcceptSharesOperation(shareMetadatas: [shareMetadata])
+                    acceptOperation.configuration.timeoutIntervalForRequest = 30
+                    
+                    acceptOperation.perShareResultBlock = { shareMetadata, result in
+                        DispatchQueue.main.async {
+                            switch result {
+                            case .success(let share):
+                                #if DEBUG
+                                print("✅ Successfully accepted share for metadata: \(shareMetadata)")
+                                print("✅ Share details: \(share)")
+                                #endif
+                            case .failure(let error):
+                                #if DEBUG
+                                print("❌ Failed to accept specific share: \(error)")
+                                #endif
+                            }
+                        }
+                    }
+                    
+                    acceptOperation.acceptSharesResultBlock = { result in
+                        DispatchQueue.main.async {
+                            switch result {
+                            case .success():
+                                #if DEBUG
+                                print("✅ Successfully accepted CloudKit share!")
+                                print("🔄 Waiting 8 seconds for CloudKit to process, then reloading data...")
+                                #endif
+                                // Wait longer for CloudKit to process, then reload
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                                    Task {
+                                        await self.fetchAllData()
+                                    }
+                                }
+                            case .failure(let error):
+                                #if DEBUG
+                                print("❌ Failed to accept CloudKit share: \(error)")
+                                if let nsError = error as NSError? {
+                                    print("❌ Error code: \(nsError.code)")
+                                }
+                                print("❌ Error description: \(error.localizedDescription)")
+                                if let ckError = error as? CKError {
+                                    print("❌ CK Error code: \(ckError.code.rawValue)")
+                                    print("❌ CK Error user info: \(ckError.userInfo)")
+                                }
+                                #endif
+                            }
+                        }
+                    }
+                    
+                    self.container.add(acceptOperation)
+                    
+                case .failure(let error):
+                    #if DEBUG
+                    print("❌ Failed to get share metadata for URL: \(shareURL)")
+                    print("❌ Error: \(error)")
+                    if let nsError = error as NSError? {
+                        print("❌ Error code: \(nsError.code)")
+                    }
+                    if let ckError = error as? CKError {
+                        print("❌ CK Error code: \(ckError.code.rawValue)")
+                        print("❌ CK Error description: \(ckError.localizedDescription)")
+                        print("❌ CK Error user info: \(ckError.userInfo)")
+                        
+                        switch ckError.code {
+                        case .unknownItem:
+                            print("💡 Share not found - this could mean:")
+                            print("💡 1. The share URL is invalid or expired")
+                            print("💡 2. The share was revoked by the owner")
+                            print("💡 3. You don't have permission to access this share")
+                            print("💡 4. Try asking the share owner to send a new share URL")
+                        case .networkFailure, .networkUnavailable:
+                            print("💡 Network issue - check your internet connection")
+                        case .notAuthenticated:
+                            print("💡 Not signed into iCloud - check Settings > [Your Name] > iCloud")
+                        default:
+                            print("💡 Unknown CloudKit error - try again later")
+                        }
+                    }
+                    #endif
+                }
+            }
+        }
+        
+        container.add(fetchOperation)
+    }
+    
+    /// Legacy check function for debugging
+    func checkForAcceptedShares() async {
+        await checkAllZonesForData()
     }
 }
 
-// MARK: - Data Models
-
-struct DailyScheduleRecord: Identifiable {
-    let id: String
-    let date: Date?
+// MARK: - Data Record Types
+struct DailyScheduleRecord: Identifiable, Hashable {
+    let id: UUID
+    let date: Date
     let line1: String?
     let line2: String?
     let line3: String?
     
-    init(from record: CKRecord) {
-        self.id = record.recordID.recordName
-        self.date = record["CD_date"] as? Date
-        self.line1 = record["CD_line1"] as? String
-        self.line2 = record["CD_line2"] as? String
-        self.line3 = record["CD_line3"] as? String
+    init(date: Date, line1: String?, line2: String?, line3: String?) {
+        self.id = UUID()
+        self.date = date
+        self.line1 = line1?.isEmpty == true ? nil : line1
+        self.line2 = line2?.isEmpty == true ? nil : line2
+        self.line3 = line3?.isEmpty == true ? nil : line3
     }
 }
 
-struct MonthlyNotesRecord: Identifiable {
-    let id: String
+struct MonthlyNotesRecord: Identifiable, Hashable {
+    let id: UUID
     let month: Int
     let year: Int
     let line1: String?
     let line2: String?
     let line3: String?
     
-    init(from record: CKRecord) {
-        self.id = record.recordID.recordName
-        self.month = (record["CD_month"] as? Int64).map(Int.init) ?? 0
-        self.year = (record["CD_year"] as? Int64).map(Int.init) ?? 0
-        self.line1 = record["CD_line1"] as? String
-        self.line2 = record["CD_line2"] as? String
-        self.line3 = record["CD_line3"] as? String
+    init(month: Int, year: Int, line1: String?, line2: String?, line3: String?) {
+        self.id = UUID()
+        self.month = month
+        self.year = year
+        self.line1 = line1?.isEmpty == true ? nil : line1
+        self.line2 = line2?.isEmpty == true ? nil : line2
+        self.line3 = line3?.isEmpty == true ? nil : line3
     }
 }

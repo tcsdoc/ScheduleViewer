@@ -7,7 +7,7 @@
 		<string>en</string>
 	</array>
 	<key>CFBundleShortVersionString</key>
-	<string>2.1</string>
+	<string>2.0</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
@@ -21,7 +21,7 @@
 		<key>iCloud.com.gulfcoast.ProviderCalendar</key>
 		<dict>
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
-			<true/>
+			<false/>
 			<key>NSUbiquitousContainerName</key>
 			<string>Provider Calendar</string>
 			<key>NSUbiquitousContainerSupportedFolderLevels</key>
@@ -31,6 +31,17 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.gulfcoast.ScheduleViewer.cloudkit</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>scheduleviewer</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

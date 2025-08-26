@@ -13,6 +13,10 @@ struct ScheduleView: View {
     @EnvironmentObject private var cloudKitManager: CloudKitManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var currentMonth = Date()
+    @State private var showShareURLInput = false
+    @State private var shareURLText = ""
+    @State private var shareStatus = ""
+    @State private var showShareStatus = false
     
     var body: some View {
         Group {
@@ -28,6 +32,28 @@ struct ScheduleView: View {
                             currentMonth: $currentMonth
                         )
                         .navigationTitle("")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarLeading) {
+                                Button("Debug") {
+                                    Task {
+                                        await cloudKitManager.checkForAcceptedShares()
+                                    }
+                                }
+                            }
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                Menu("Actions") {
+                                    Button("Refresh") {
+                                        Task {
+                                            await cloudKitManager.fetchAllData()
+                                        }
+                                    }
+                                    Button("Accept Share") {
+                                        showShareURLInput = true
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else {
                     iPadCalendarGridView(
@@ -35,6 +61,27 @@ struct ScheduleView: View {
                         monthlyNotes: cloudKitManager.monthlyNotes,
                         currentMonth: $currentMonth
                     )
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("Debug") {
+                                Task {
+                                    await cloudKitManager.checkForAcceptedShares()
+                                }
+                            }
+                        }
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Menu("Actions") {
+                                Button("Refresh") {
+                                    Task {
+                                        await cloudKitManager.fetchAllData()
+                                    }
+                                }
+                                Button("Accept Share") {
+                                    showShareURLInput = true
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -42,13 +89,52 @@ struct ScheduleView: View {
             #if DEBUG
             print("🔄 ScheduleViewer appeared - fetching data...")
             #endif
-            cloudKitManager.fetchAllData()
+            Task {
+                await cloudKitManager.fetchAllData()
+                await cloudKitManager.checkForAcceptedShares()
+            }
         }
         .refreshable {
             #if DEBUG
             print("🔄 Manual refresh triggered in ScheduleViewer")
             #endif
-            cloudKitManager.fetchAllData()
+            await cloudKitManager.fetchAllData()
+            await cloudKitManager.checkForAcceptedShares()
+        }
+        .alert("Enter Share URL", isPresented: $showShareURLInput) {
+            TextField("Paste CloudKit share URL here", text: $shareURLText)
+            Button("Accept") {
+                #if DEBUG
+                print("🔗 User tapped Accept button with text: '\(shareURLText)'")
+                #endif
+                let trimmedURL = shareURLText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let url = URL(string: trimmedURL) {
+                    #if DEBUG
+                    print("🔗 Successfully created URL from text: '\(trimmedURL)'")
+                    print("🔗 URL components - Host: \(url.host ?? "nil"), Path: \(url.path)")
+                    print("🔗 Calling acceptShare...")
+                    #endif
+                    shareStatus = "Processing share..."
+                    showShareStatus = true
+                    cloudKitManager.acceptShare(from: url)
+                    shareURLText = ""
+                } else {
+                    #if DEBUG
+                    print("❌ Failed to create URL from text: '\(trimmedURL)'")
+                    print("❌ Original text: '\(shareURLText)'")
+                    #endif
+                    shareStatus = "Could not parse URL. Please check the format."
+                    showShareStatus = true
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                shareURLText = ""
+            }
+        }
+        .alert("Share Status", isPresented: $showShareStatus) {
+            Button("OK") { shareStatus = "" }
+        } message: {
+            Text(shareStatus)
         }
     }
 }
@@ -58,6 +144,7 @@ struct iPhoneScheduleListView: View {
     let dailySchedules: [DailyScheduleRecord]
     let monthlyNotes: [MonthlyNotesRecord]
     @Binding var currentMonth: Date
+    @EnvironmentObject private var cloudKitManager: CloudKitManager
     
     var body: some View {
         VStack(spacing: 12) {
@@ -67,9 +154,16 @@ struct iPhoneScheduleListView: View {
                     Image(systemName: "chevron.left").font(.title2)
                 }
                 Spacer()
-                Text(monthYearString(from: currentMonth))
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                VStack(spacing: 2) {
+                    Text(monthYearString(from: currentMonth))
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    if cloudKitManager.hasSharedData {
+                        Text("📡 Shared Data")
+                            .font(.caption2)
+                            .foregroundColor(.blue)
+                    }
+                }
                 Spacer()
                 
                 // Print Button
@@ -104,8 +198,7 @@ struct iPhoneScheduleListView: View {
                     Text("Schedule").font(.headline).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal)
                     ForEach(daysInMonth(currentMonth), id: \.self) { date in
                         let schedule = dailySchedules.first(where: { 
-                            guard let scheduleDate = $0.date else { return false }
-                            return Calendar.current.isDate(scheduleDate, inSameDayAs: date)
+                            Calendar.current.isDate($0.date, inSameDayAs: date)
                         })
                         VStack(alignment: .leading, spacing: 2) {
                             HStack {
@@ -251,8 +344,7 @@ struct iPadCalendarGridView: View {
                                     if weekIndex * 7 + dayIndex < days.count {
                                         let date = days[weekIndex * 7 + dayIndex]
                                         let schedule = dailySchedules.first(where: { 
-                                            guard let scheduleDate = $0.date else { return false }
-                                            return Calendar.current.isDate(scheduleDate, inSameDayAs: date)
+                                            Calendar.current.isDate($0.date, inSameDayAs: date)
                                         })
                                         
                                         VStack(spacing: 4) {
@@ -446,8 +538,7 @@ func generatePrintHTML(dailySchedules: [DailyScheduleRecord], monthlyNotes: [Mon
                 // Day with schedule data
                 let dayDate = calendar.date(byAdding: .day, value: dayCounter - 1, to: firstDayOfMonth)!
                 let schedule = dailySchedules.first(where: { 
-                    guard let scheduleDate = $0.date else { return false }
-                    return calendar.isDate(scheduleDate, inSameDayAs: dayDate)
+                    calendar.isDate($0.date, inSameDayAs: dayDate)
                 })
                 
                 html += "<td class=\"\(weekendClass)\">"
