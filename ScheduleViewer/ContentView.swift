@@ -18,16 +18,16 @@ struct ContentView: View {
                     // Share input section
                     shareInputSection
                     
-                    // Schedule display
-                    scheduleSection
-                    
-                    // Monthly notes display
-                    monthlyNotesSection
+                    // Monthly schedule display with notes
+                    monthlyScheduleSection
                 }
                 .padding()
             }
             .navigationTitle("Schedule Viewer")
             .onAppear {
+                cloudKitManager.checkForSharedData()
+            }
+            .refreshable {
                 cloudKitManager.checkForSharedData()
             }
             .sheet(isPresented: $showingShareInput) {
@@ -131,38 +131,67 @@ struct ContentView: View {
         .cornerRadius(8)
     }
     
-    private var scheduleSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Schedules")
-                .font(.headline)
-            
-            if cloudKitManager.sharedSchedules.isEmpty {
-                Text("No schedules available")
+    private var monthlyScheduleSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if cloudKitManager.sharedSchedules.isEmpty && cloudKitManager.sharedMonthlyNotes.isEmpty {
+                Text("No schedule data available")
                     .foregroundColor(.gray)
                     .italic()
             } else {
-                ForEach(cloudKitManager.sharedSchedules) { schedule in
-                    ScheduleRowView(schedule: schedule)
+                ForEach(monthsWithData, id: \.self) { month in
+                    monthSection(for: month)
                 }
             }
         }
     }
     
-    private var monthlyNotesSection: some View {
+    private func monthSection(for month: Date) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Monthly Notes")
-                .font(.headline)
+            // Month header
+            Text(monthFormatter.string(from: month))
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
             
-            if cloudKitManager.sharedMonthlyNotes.isEmpty {
-                Text("No monthly notes available")
-                    .foregroundColor(.gray)
-                    .italic()
-            } else {
-                ForEach(cloudKitManager.sharedMonthlyNotes) { note in
-                    MonthlyNoteRowView(note: note)
+            // Monthly notes for this month (if any)
+            let monthlyNotes = getMonthlyNotesFor(month: month)
+            if !monthlyNotes.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Monthly Notes")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    
+                    ForEach(monthlyNotes) { note in
+                        MonthlyNoteRowView(note: note)
+                    }
                 }
             }
+            
+            // Schedule entries for this month
+            let schedules = getSchedulesFor(month: month)
+            if !schedules.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Schedule Entries")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    
+                    ForEach(schedules) { schedule in
+                        ScheduleRowView(schedule: schedule)
+                    }
+                }
+            }
+            
+            // Show message if month has no data
+            if monthlyNotes.isEmpty && schedules.isEmpty {
+                Text("No data for this month")
+                    .foregroundColor(.gray)
+                    .italic()
+                    .font(.caption)
+            }
         }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
     }
     
     private var shareInputSheet: some View {
@@ -351,6 +380,61 @@ struct ContentView: View {
         }
         
         return months
+    }
+    
+    private var monthsWithData: [Date] {
+        let calendar = Calendar.current
+        var monthsSet: Set<Date> = []
+        
+        // Add months that have schedule data
+        for schedule in cloudKitManager.sharedSchedules {
+            if let date = schedule.date {
+                let monthStart = calendar.dateInterval(of: .month, for: date)?.start ?? date
+                monthsSet.insert(monthStart)
+            }
+        }
+        
+        // Add months that have monthly notes
+        for note in cloudKitManager.sharedMonthlyNotes {
+            var components = DateComponents()
+            components.year = note.year
+            components.month = note.month
+            components.day = 1
+            if let monthStart = calendar.date(from: components) {
+                monthsSet.insert(monthStart)
+            }
+        }
+        
+        // Sort months chronologically
+        return Array(monthsSet).sorted()
+    }
+    
+    private var monthFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter
+    }
+    
+    private func getMonthlyNotesFor(month: Date) -> [SharedMonthlyNotesRecord] {
+        let calendar = Calendar.current
+        let monthNumber = calendar.component(.month, from: month)
+        let yearNumber = calendar.component(.year, from: month)
+        
+        return cloudKitManager.sharedMonthlyNotes.filter { note in
+            note.month == monthNumber && note.year == yearNumber
+        }
+    }
+    
+    private func getSchedulesFor(month: Date) -> [SharedScheduleRecord] {
+        let calendar = Calendar.current
+        
+        return cloudKitManager.sharedSchedules.filter { schedule in
+            guard let scheduleDate = schedule.date else { return false }
+            return calendar.isDate(scheduleDate, equalTo: month, toGranularity: .month)
+        }.sorted { schedule1, schedule2 in
+            guard let date1 = schedule1.date, let date2 = schedule2.date else { return false }
+            return date1 < date2
+        }
     }
     
     private func getCalendarDaysWithAlignment(for month: Date) -> [Date] {
