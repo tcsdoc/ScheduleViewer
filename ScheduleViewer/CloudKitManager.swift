@@ -24,7 +24,12 @@ class CloudKitManager: ObservableObject {
     @Published var cloudKitAvailable = false
     @Published var acceptedShares: [CKShare] = []
     
-    private var acceptedSharedZones: [CKRecordZone.ID] = []
+    private var acceptedSharedZones: [CKRecordZone.ID] = [] {
+        didSet {
+            // Persist to UserDefaults whenever this changes
+            saveAcceptedSharedZonesToDefaults()
+        }
+    }
     
     init() {
         container = CKContainer(identifier: "iCloud.com.gulfcoast.ProviderCalendar")
@@ -32,7 +37,50 @@ class CloudKitManager: ObservableObject {
         privateDatabase = container.privateCloudDatabase
         
         debugLog("🚀 ScheduleViewer CloudKitManager initialized (Shared + Private Database Access)")
+        
+        // Load any previously accepted shared zones
+        loadAcceptedSharedZonesFromDefaults()
+        
         checkCloudKitStatus()
+    }
+    
+    // MARK: - Share Persistence
+    private func saveAcceptedSharedZonesToDefaults() {
+        let zoneData = acceptedSharedZones.compactMap { zone -> [String: String]? in
+            return [
+                "zoneName": zone.zoneName,
+                "ownerName": zone.ownerName
+            ]
+        }
+        UserDefaults.standard.set(zoneData, forKey: "acceptedSharedZones")
+        debugLog("💾 Saved \(zoneData.count) accepted shared zones to UserDefaults")
+    }
+    
+    private func loadAcceptedSharedZonesFromDefaults() {
+        guard let zoneData = UserDefaults.standard.array(forKey: "acceptedSharedZones") as? [[String: String]] else {
+            debugLog("📂 No previously accepted shared zones found in UserDefaults")
+            return
+        }
+        
+        acceptedSharedZones = zoneData.compactMap { dict in
+            guard let zoneName = dict["zoneName"],
+                  let ownerName = dict["ownerName"] else { return nil }
+            return CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
+        }
+        
+        debugLog("📂 Loaded \(acceptedSharedZones.count) accepted shared zones from UserDefaults")
+        
+        // If we have persisted zones, we should automatically fetch data
+        if !acceptedSharedZones.isEmpty {
+            debugLog("🔄 Auto-fetching data from \(acceptedSharedZones.count) persisted shared zones")
+            fetchSharedSchedules()
+        }
+    }
+    
+    private func clearAcceptedSharedZones() {
+        acceptedSharedZones = []
+        UserDefaults.standard.removeObject(forKey: "acceptedSharedZones")
+        debugLog("🗑️ Cleared all accepted shared zones from UserDefaults")
     }
     
     // MARK: - CloudKit Account Status
@@ -326,6 +374,10 @@ class CloudKitManager: ObservableObject {
                 debugLog("✅ Successfully accepted share")
                 DispatchQueue.main.async { [weak self] in
                     self?.acceptedShares.append(share)
+                    // Immediately discover and persist the new shared zones
+                    self?.discoverSharedZones {
+                        debugLog("🔄 Share zones updated after acceptance")
+                    }
                     completion(true, nil)
                 }
             case .failure(let error):
