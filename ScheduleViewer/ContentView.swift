@@ -87,17 +87,14 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundColor(.gray)
             } else if !cloudKitManager.sharedSchedules.isEmpty || !cloudKitManager.sharedMonthlyNotes.isEmpty {
-                // Show minimal status when data is available
+                // Show clean status when data is available
                 HStack {
-                    Text("📤 Connected")
+                    Text("📤 Connected to Provider Schedule")
                         .font(.headline)
                         .foregroundColor(.green)
                     Spacer()
-                    Button("Manage") {
-                        showingShareInput = true
-                    }
-                    .font(.caption)
-                    .foregroundColor(.blue)
+                    Text("✅")
+                        .font(.title2)
                 }
             }
         }
