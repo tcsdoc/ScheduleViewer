@@ -491,7 +491,7 @@ class CloudKitManager: ObservableObject {
             DispatchQueue.main.async {
                 switch result {
                 case .success(let cursor):
-                    if let cursor = cursor {
+                    if cursor != nil {
                         // Handle pagination if needed
                         debugLog("📄 More monthly notes available, but we'll get them in next fetch")
                     }
