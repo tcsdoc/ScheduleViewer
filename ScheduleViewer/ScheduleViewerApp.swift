@@ -3,34 +3,30 @@
 //  ScheduleViewer
 //
 //  Created by mark on 7/12/25.
+//  Updated to match Provider Schedule Calendar's exact architecture
 //
 
 import SwiftUI
-import CloudKit
 
 @main
 struct ScheduleViewerApp: App {
-    let cloudKitManager = CloudKitManager.shared
+    @StateObject private var cloudKitManager = CloudKitManager.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(cloudKitManager)
                 .onOpenURL { url in
-                    #if DEBUG
-                    print("🔗 ScheduleViewer opened with URL: \(url)")
-                    #endif
-                    
-                    // Check if this is a CloudKit share URL
-                    if url.host == "www.icloud.com" && url.path.contains("/share/") {
-                        #if DEBUG
-                        print("✅ Detected CloudKit share URL - attempting to accept")
-                        #endif
-                        cloudKitManager.acceptShare(from: url)
-                    } else {
-                        #if DEBUG
-                        print("ℹ️ Non-CloudKit URL received")
-                        #endif
+                    debugLog("📬 ScheduleViewer received URL: \(url)")
+                    if url.absoluteString.contains("icloud.com/share/") {
+                        debugLog("🔗 CloudKit share URL detected, accepting share...")
+                        cloudKitManager.acceptShareFromURL(url) { success, error in
+                            if success {
+                                debugLog("✅ Share accepted successfully")
+                            } else {
+                                debugLog("❌ Failed to accept share: \(error?.localizedDescription ?? "Unknown error")")
+                            }
+                        }
                     }
                 }
         }
