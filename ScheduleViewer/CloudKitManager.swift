@@ -270,11 +270,11 @@ class CloudKitManager: ObservableObject {
         queryOperation.queryResultBlock = { result in
             DispatchQueue.main.async {
                 switch result {
-                case .success(let newCursor):
+                case .success(let cursor):
                     debugLog("📊 Query completed for zone \(zoneID.zoneName): \(zoneRecords.count) records")
-                    if let newCursor = newCursor {
+                    if let cursor = cursor {
                         debugLog("🔄 PAGINATION: Fetching more records with cursor")
-                        self.fetchRecordsInZone(zoneID: zoneID, cursor: newCursor) { additionalRecords in
+                        self.fetchRecordsInZone(zoneID: zoneID, cursor: cursor) { additionalRecords in
                             completion(zoneRecords + additionalRecords)
                         }
                     } else {
