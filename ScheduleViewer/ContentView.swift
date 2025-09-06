@@ -71,20 +71,34 @@ struct ContentView: View {
     
     private var shareInputSection: some View {
         VStack(spacing: 12) {
-            HStack {
-                Text("📤 Share Management")
-                    .font(.headline)
-                Spacer()
-                Button("Add Share") {
-                    showingShareInput = true
+            // Only show "Add Share" section if no data is available
+            if cloudKitManager.sharedSchedules.isEmpty && cloudKitManager.sharedMonthlyNotes.isEmpty && !cloudKitManager.isLoading {
+                HStack {
+                    Text("📤 Initial Setup Required")
+                        .font(.headline)
+                    Spacer()
+                    Button("Add Share") {
+                        showingShareInput = true
+                    }
+                    .foregroundColor(.blue)
                 }
-                .foregroundColor(.blue)
-            }
-            
-            if cloudKitManager.acceptedShares.count > 0 {
-                Text("✅ \(cloudKitManager.acceptedShares.count) active shares")
+                
+                Text("Tap 'Add Share' to connect to a Provider Schedule Calendar")
                     .font(.caption)
-                    .foregroundColor(.green)
+                    .foregroundColor(.gray)
+            } else if !cloudKitManager.sharedSchedules.isEmpty || !cloudKitManager.sharedMonthlyNotes.isEmpty {
+                // Show minimal status when data is available
+                HStack {
+                    Text("📤 Connected")
+                        .font(.headline)
+                        .foregroundColor(.green)
+                    Spacer()
+                    Button("Manage") {
+                        showingShareInput = true
+                    }
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                }
             }
         }
         .padding()
@@ -129,11 +143,11 @@ struct ContentView: View {
     private var shareInputSheet: some View {
         NavigationView {
             VStack(spacing: 20) {
-                Text("Accept CloudKit Share")
+                Text("Connect to Provider Schedule")
                     .font(.title2)
                     .fontWeight(.bold)
                 
-                Text("Paste the share URL from Provider Schedule Calendar:")
+                Text("This is a one-time setup. Paste the share URL from Provider Schedule Calendar:")
                     .font(.body)
                     .multilineTextAlignment(.center)
                     .foregroundColor(.secondary)
