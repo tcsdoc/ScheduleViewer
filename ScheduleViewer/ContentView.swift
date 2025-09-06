@@ -1,5 +1,6 @@
 import SwiftUI
 import CloudKit
+import UIKit
 
 struct ContentView: View {
     @EnvironmentObject var cloudKitManager: CloudKitManager
@@ -55,13 +56,34 @@ struct ContentView: View {
                 Text("📭 No shared data found")
                     .foregroundColor(.gray)
             } else {
-                VStack(spacing: 2) {
-                    Text("✅ \(cloudKitManager.sharedSchedules.count) schedules")
-                        .foregroundColor(.green)
-                    Text("✅ \(cloudKitManager.sharedMonthlyNotes.count) monthly notes")
-                        .foregroundColor(.green)
+                VStack(spacing: 8) {
+                    HStack {
+                        VStack(spacing: 2) {
+                            Text("✅ \(cloudKitManager.sharedSchedules.count) schedules")
+                                .foregroundColor(.green)
+                            Text("✅ \(cloudKitManager.sharedMonthlyNotes.count) monthly notes")
+                                .foregroundColor(.green)
+                        }
+                        .font(.caption)
+                        
+                        Spacer()
+                        
+                        Button(action: {
+                            printCalendar()
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "printer")
+                                Text("Print")
+                            }
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.blue.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                    }
                 }
-                .font(.caption)
             }
         }
         .padding()
@@ -194,6 +216,46 @@ struct ContentView: View {
             }
         }
     }
+    
+    // MARK: - Print Functions
+    private func printCalendar() {
+        let printableView = PrintableCalendarView(
+            schedules: cloudKitManager.sharedSchedules,
+            monthlyNotes: cloudKitManager.sharedMonthlyNotes
+        )
+        
+        let hostingController = UIHostingController(rootView: printableView)
+        hostingController.view.backgroundColor = UIColor.white
+        
+        // Create a printable view with proper sizing
+        let targetSize = CGSize(width: 612, height: 792) // 8.5 x 11 inches at 72 DPI
+        hostingController.view.frame = CGRect(origin: .zero, size: targetSize)
+        hostingController.view.layoutIfNeeded()
+        
+        // Present print interface
+        let printController = UIPrintInteractionController.shared
+        printController.printingItem = hostingController.view.renderedImage()
+        
+        printController.present(animated: true) { controller, completed, error in
+            if let error = error {
+                debugLog("❌ Print error: \(error.localizedDescription)")
+            } else if completed {
+                debugLog("✅ Print completed successfully")
+            } else {
+                debugLog("🔄 Print cancelled by user")
+            }
+        }
+    }
+}
+
+// MARK: - UIView Extension for Rendering
+extension UIView {
+    func renderedImage() -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: bounds.size)
+        return renderer.image { context in
+            layer.render(in: context.cgContext)
+        }
+    }
 }
 
 struct ScheduleRowView: View {
@@ -279,6 +341,221 @@ struct MonthlyNoteRowView: View {
         }
         
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Printable Calendar View
+struct PrintableCalendarView: View {
+    let schedules: [SharedScheduleRecord]
+    let monthlyNotes: [SharedMonthlyNotesRecord]
+    
+    private let calendar = Calendar.current
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                // Header
+                Text("PROVIDER SCHEDULE")
+                    .font(.title)
+                    .fontWeight(.bold)
+                    .padding(.bottom, 10)
+                
+                // Generate months to show (current + next 11 months)
+                ForEach(monthsToShow, id: \.self) { month in
+                    PrintableMonthView(
+                        month: month,
+                        schedules: schedules,
+                        monthlyNotes: monthlyNotes
+                    )
+                }
+            }
+            .padding()
+        }
+        .background(Color.white)
+    }
+    
+    private var monthsToShow: [Date] {
+        var months: [Date] = []
+        let startDate = Calendar.current.startOfMonth(for: Date())
+        
+        for i in 0..<12 {
+            if let month = Calendar.current.date(byAdding: .month, value: i, to: startDate) {
+                months.append(month)
+            }
+        }
+        return months
+    }
+}
+
+struct PrintableMonthView: View {
+    let month: Date
+    let schedules: [SharedScheduleRecord]
+    let monthlyNotes: [SharedMonthlyNotesRecord]
+    
+    private let calendar = Calendar.current
+    private let monthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter
+    }()
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            // Month header
+            Text(monthFormatter.string(from: month))
+                .font(.title2)
+                .fontWeight(.bold)
+                .frame(maxWidth: .infinity, alignment: .center)
+            
+            // Monthly notes section
+            if let monthlyNote = monthlyNoteForMonth {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Monthly Notes:")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    if let line1 = monthlyNote.line1, !line1.isEmpty {
+                        Text("1: \(line1)")
+                    }
+                    if let line2 = monthlyNote.line2, !line2.isEmpty {
+                        Text("2: \(line2)")
+                    }
+                    if let line3 = monthlyNote.line3, !line3.isEmpty {
+                        Text("3: \(line3)")
+                    }
+                }
+                .font(.body)
+                .padding()
+                .background(Color.green.opacity(0.1))
+                .cornerRadius(8)
+            }
+            
+            // Days of week header
+            HStack {
+                ForEach(Calendar.current.shortWeekdaySymbols, id: \.self) { day in
+                    Text(day)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 6)
+            .background(Color.gray.opacity(0.2))
+            .cornerRadius(6)
+            
+            // Calendar grid
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
+                ForEach(daysInMonth, id: \.self) { date in
+                    if calendar.isDate(date, equalTo: month, toGranularity: .month) {
+                        PrintableDayCell(date: date, schedule: scheduleForDate(date))
+                    } else {
+                        Rectangle()
+                            .fill(Color.clear)
+                            .frame(minHeight: 80)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.white)
+        .overlay(
+            Rectangle()
+                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+        )
+    }
+    
+    private var monthlyNoteForMonth: SharedMonthlyNotesRecord? {
+        let monthNumber = calendar.component(.month, from: month)
+        let yearNumber = calendar.component(.year, from: month)
+        
+        return monthlyNotes.first { note in
+            note.month == monthNumber && note.year == yearNumber
+        }
+    }
+    
+    private var daysInMonth: [Date] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: month) else {
+            return []
+        }
+        
+        let startOfMonth = monthInterval.start
+        guard let firstWeekday = calendar.dateInterval(of: .weekOfYear, for: startOfMonth)?.start else {
+            return []
+        }
+        
+        var days: [Date] = []
+        var currentDate = firstWeekday
+        
+        for _ in 0..<42 {
+            days.append(currentDate)
+            currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+        }
+        
+        return days
+    }
+    
+    private func scheduleForDate(_ date: Date) -> SharedScheduleRecord? {
+        return schedules.first { schedule in
+            guard let scheduleDate = schedule.date else { return false }
+            return calendar.isDate(scheduleDate, inSameDayAs: date)
+        }
+    }
+}
+
+struct PrintableDayCell: View {
+    let date: Date
+    let schedule: SharedScheduleRecord?
+    
+    private let calendar = Calendar.current
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // Day number
+            HStack {
+                Text("\(calendar.component(.day, from: date))")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.primary)
+                Spacer()
+            }
+            
+            // Schedule lines
+            VStack(alignment: .leading, spacing: 1) {
+                if let schedule = schedule {
+                    if let line1 = schedule.line1, !line1.isEmpty {
+                        Text(line1)
+                            .font(.system(size: 8))
+                            .lineLimit(1)
+                    }
+                    if let line2 = schedule.line2, !line2.isEmpty {
+                        Text(line2)
+                            .font(.system(size: 8))
+                            .lineLimit(1)
+                    }
+                    if let line3 = schedule.line3, !line3.isEmpty {
+                        Text(line3)
+                            .font(.system(size: 8))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 80)
+        .padding(2)
+        .background(Color.white)
+        .overlay(
+            Rectangle()
+                .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
+        )
+    }
+}
+
+// MARK: - Calendar Helper Extension
+extension Calendar {
+    func startOfMonth(for date: Date) -> Date {
+        let components = dateComponents([.year, .month], from: date)
+        return self.date(from: components) ?? date
     }
 }
 
