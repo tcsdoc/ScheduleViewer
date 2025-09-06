@@ -68,6 +68,12 @@ struct ContentView: View {
                         
                         Spacer()
                         
+                        Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.0")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
                         Button(action: {
                             printCalendar()
                         }) {
@@ -198,31 +204,24 @@ struct ContentView: View {
     
     private func acceptShare() {
         guard let url = URL(string: shareURL) else {
-            debugLog("❌ Invalid URL: \(shareURL)")
             return
         }
         
-        debugLog("🔗 Attempting to accept share: \(url)")
         cloudKitManager.acceptShareFromURL(url) { success, error in
             DispatchQueue.main.async {
                 if success {
-                    debugLog("✅ Share accepted successfully")
                     showingShareInput = false
                     shareURL = ""
                     cloudKitManager.checkForSharedData()
                 } else {
-                    debugLog("❌ Failed to accept share: \(error?.localizedDescription ?? "Unknown error")")
+                    // Handle error if needed
                 }
             }
         }
     }
     
-    // MARK: - Print Functions (Same approach as PSC)
+    // MARK: - Print Functions
     private func printCalendar() {
-        debugLog("🖨️ Print calendar called")
-        debugLog("📊 Schedules to print: \(cloudKitManager.sharedSchedules.count)")
-        debugLog("📝 Monthly notes to print: \(cloudKitManager.sharedMonthlyNotes.count)")
-        
         let printController = UIPrintInteractionController.shared
         let printInfo = UIPrintInfo.printInfo()
         
@@ -233,7 +232,7 @@ struct ContentView: View {
         printController.printInfo = printInfo
         printController.showsNumberOfCopies = true
         
-        // Create printable content using HTML (same as PSC)
+        // Create printable content using HTML
         let htmlContent = generateFullYearHTML()
         let formatter = UIMarkupTextPrintFormatter(markupText: htmlContent)
         formatter.perPageContentInsets = UIEdgeInsets(top: 30, left: 30, bottom: 30, right: 30)
@@ -243,11 +242,7 @@ struct ContentView: View {
         // Present print dialog
         printController.present(animated: true) { (controller, completed, error) in
             if let error = error {
-                debugLog("❌ Print error: \(error.localizedDescription)")
-            } else if completed {
-                debugLog("✅ Print completed successfully")
-            } else {
-                debugLog("🔄 Print cancelled by user")
+                debugLog("Print error: \(error.localizedDescription)")
             }
         }
     }
