@@ -7,6 +7,8 @@ struct ContentView: View {
     @State private var selectedDate = Date()
     @State private var shareURL: String = ""
     @State private var showingShareInput = false
+    @State private var showingErrorAlert = false
+    @State private var errorMessage = ""
     
     var body: some View {
         NavigationView {
@@ -32,6 +34,11 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingShareInput) {
                 shareInputSheet
+            }
+            .alert("Share Error", isPresented: $showingErrorAlert) {
+                Button("OK") {}
+            } message: {
+                Text(errorMessage)
             }
         }
     }
@@ -233,17 +240,40 @@ struct ContentView: View {
     
     private func acceptShare() {
         guard let url = URL(string: shareURL) else {
+            errorMessage = "Invalid share URL format. Please check the URL and try again."
+            showingErrorAlert = true
             return
         }
+        
+        print("🔗 SV DEBUG: Attempting to accept share from URL: \(url.absoluteString)")
         
         cloudKitManager.acceptShareFromURL(url) { success, error in
             DispatchQueue.main.async {
                 if success {
+                    print("✅ SV DEBUG: Share accepted successfully!")
                     showingShareInput = false
                     shareURL = ""
                     cloudKitManager.checkForSharedData()
                 } else {
-                    // Handle error if needed
+                    print("❌ SV DEBUG: Share acceptance failed")
+                    if let error = error {
+                        print("❌ SV DEBUG: Error details: \(error.localizedDescription)")
+                        if let ckError = error as? CKError {
+                            print("❌ SV DEBUG: CloudKit Error Code: \(ckError.code.rawValue)")
+                        }
+                    }
+                    
+                    errorMessage = """
+                    Failed to accept share.
+                    
+                    Error: \(error?.localizedDescription ?? "Unknown error")
+                    
+                    Please check:
+                    • You're signed into iCloud
+                    • The share URL is valid
+                    • You have internet connection
+                    """
+                    showingErrorAlert = true
                 }
             }
         }

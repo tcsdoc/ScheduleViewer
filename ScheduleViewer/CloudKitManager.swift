@@ -241,48 +241,86 @@ class CloudKitManager: ObservableObject {
     
     // MARK: - Share Acceptance
     func acceptShareFromURL(_ url: URL, completion: @escaping (Bool, Error?) -> Void) {
+        debugLog("🔗 SV CLOUDKIT: Starting share acceptance process")
+        debugLog("🔗 SV CLOUDKIT: Share URL: \(url.absoluteString)")
+        debugLog("🔗 SV CLOUDKIT: CloudKit Available: \(cloudKitAvailable)")
+        
         guard cloudKitAvailable else {
+            debugLog("❌ SV CLOUDKIT: CloudKit not available")
             completion(false, NSError(domain: "CloudKitManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "CloudKit not available"]))
             return
         }
         
         // Fetch share metadata first
+        debugLog("🔗 SV CLOUDKIT: Creating CKFetchShareMetadataOperation")
         let fetchOperation = CKFetchShareMetadataOperation(shareURLs: [url])
         fetchOperation.perShareMetadataResultBlock = { shareURL, result in
+            debugLog("🔗 SV CLOUDKIT: perShareMetadataResultBlock called for URL: \(shareURL.absoluteString)")
             switch result {
             case .success(let metadata):
+                debugLog("✅ SV CLOUDKIT: Share metadata fetched successfully")
+                debugLog("🔗 SV CLOUDKIT: Share type: \(metadata.share.recordType)")
+                debugLog("🔗 SV CLOUDKIT: Root record type: \(metadata.rootRecordID.recordName)")
+                debugLog("🔗 SV CLOUDKIT: Participant permission: \(metadata.participantPermission.rawValue)")
+                debugLog("🔗 SV CLOUDKIT: Participant status: \(metadata.participantStatus.rawValue)")
                 self.acceptShare(metadata: metadata, completion: completion)
             case .failure(let error):
+                debugLog("❌ SV CLOUDKIT: Failed to fetch share metadata: \(error.localizedDescription)")
+                if let ckError = error as? CKError {
+                    debugLog("❌ SV CLOUDKIT: CKError code: \(ckError.code.rawValue)")
+                    debugLog("❌ SV CLOUDKIT: CKError description: \(ckError.localizedDescription)")
+                }
                 completion(false, error)
             }
         }
         
         fetchOperation.fetchShareMetadataResultBlock = { result in
+            debugLog("🔗 SV CLOUDKIT: fetchShareMetadataResultBlock called")
             switch result {
             case .success:
+                debugLog("✅ SV CLOUDKIT: Overall fetch metadata operation succeeded")
                 break
             case .failure(let error):
+                debugLog("❌ SV CLOUDKIT: Overall fetch metadata operation failed: \(error.localizedDescription)")
                 completion(false, error)
             }
         }
         
+        debugLog("🔗 SV CLOUDKIT: Adding fetch operation to container")
         container.add(fetchOperation)
     }
     
     private func acceptShare(metadata: CKShare.Metadata, completion: @escaping (Bool, Error?) -> Void) {
+        debugLog("🔗 SV CLOUDKIT: Creating CKAcceptSharesOperation")
+        debugLog("🔗 SV CLOUDKIT: Metadata root record: \(metadata.rootRecordID.recordName)")
+        
         let acceptOperation = CKAcceptSharesOperation(shareMetadatas: [metadata])
         acceptOperation.perShareResultBlock = { metadata, result in
+            debugLog("🔗 SV CLOUDKIT: perShareResultBlock called")
             switch result {
             case .success(let share):
+                debugLog("✅ SV CLOUDKIT: Share accepted successfully!")
+                debugLog("🔗 SV CLOUDKIT: Share URL: \(share.url?.absoluteString ?? "nil")")
+                debugLog("🔗 SV CLOUDKIT: Share record ID: \(share.recordID)")
+                debugLog("🔗 SV CLOUDKIT: Share participants: \(share.participants.count)")
+                
                 DispatchQueue.main.async { [weak self] in
                     self?.acceptedShares.append(share)
+                    debugLog("🔗 SV CLOUDKIT: Added share to acceptedShares array")
+                    
                     // Immediately discover and persist the new shared zones
+                    debugLog("🔗 SV CLOUDKIT: Starting zone discovery after share acceptance")
                     self?.discoverSharedZones {
-                        // Zone discovery completed
+                        debugLog("✅ SV CLOUDKIT: Zone discovery completed after share acceptance")
                     }
                     completion(true, nil)
                 }
             case .failure(let error):
+                debugLog("❌ SV CLOUDKIT: Failed to accept share: \(error.localizedDescription)")
+                if let ckError = error as? CKError {
+                    debugLog("❌ SV CLOUDKIT: Accept share CKError code: \(ckError.code.rawValue)")
+                    debugLog("❌ SV CLOUDKIT: Accept share CKError description: \(ckError.localizedDescription)")
+                }
                 DispatchQueue.main.async {
                     completion(false, error)
                 }
@@ -290,16 +328,20 @@ class CloudKitManager: ObservableObject {
         }
         
         acceptOperation.acceptSharesResultBlock = { result in
+            debugLog("🔗 SV CLOUDKIT: acceptSharesResultBlock called")
             switch result {
             case .success:
+                debugLog("✅ SV CLOUDKIT: Overall accept shares operation succeeded")
                 break
             case .failure(let error):
+                debugLog("❌ SV CLOUDKIT: Overall accept shares operation failed: \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     completion(false, error)
                 }
             }
         }
         
+        debugLog("🔗 SV CLOUDKIT: Adding accept operation to container")
         container.add(acceptOperation)
     }
     
