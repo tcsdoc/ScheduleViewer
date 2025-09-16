@@ -30,7 +30,7 @@ struct ContentView: View {
                 cloudKitManager.checkForSharedData()
             }
             .refreshable {
-                cloudKitManager.checkForSharedData()
+                cloudKitManager.forceRefreshSharedData()
             }
             .sheet(isPresented: $showingShareInput) {
                 shareInputSheet

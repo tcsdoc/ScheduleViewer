@@ -349,6 +349,19 @@ class CloudKitManager: ObservableObject {
         checkForSharedData()
     }
     
+    /// Force refresh data from existing shared zones (for manual refresh)
+    func forceRefreshSharedData() {
+        guard cloudKitAvailable else {
+            debugLog("❌ SV REFRESH: CloudKit not available")
+            return
+        }
+        
+        debugLog("🔄 SV REFRESH: Force refreshing shared data from existing zones")
+        
+        // Skip zone discovery, directly fetch fresh data from known zones
+        fetchSharedSchedules()
+    }
+    
     private func queryPrivateDatabase(zoneID: CKRecordZone.ID, completion: @escaping ([SharedScheduleRecord]) -> Void) {
         let predicate = NSPredicate(value: true)
         let query = CKQuery(recordType: "CD_DailySchedule", predicate: predicate)
