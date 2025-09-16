@@ -245,21 +245,21 @@ struct ContentView: View {
             return
         }
         
-        print("🔗 SV DEBUG: Attempting to accept share from URL: \(url.absoluteString)")
+        debugLog("🔗 SV DEBUG: Attempting to accept share from URL: \(url.absoluteString)")
         
         cloudKitManager.acceptShareFromURL(url) { success, error in
             DispatchQueue.main.async {
                 if success {
-                    print("✅ SV DEBUG: Share accepted successfully!")
+                    debugLog("✅ SV DEBUG: Share accepted successfully!")
                     showingShareInput = false
                     shareURL = ""
                     cloudKitManager.checkForSharedData()
                 } else {
-                    print("❌ SV DEBUG: Share acceptance failed")
+                    debugLog("❌ SV DEBUG: Share acceptance failed")
                     if let error = error {
-                        print("❌ SV DEBUG: Error details: \(error.localizedDescription)")
+                        debugLog("❌ SV DEBUG: Error details: \(error.localizedDescription)")
                         if let ckError = error as? CKError {
-                            print("❌ SV DEBUG: CloudKit Error Code: \(ckError.code.rawValue)")
+                            debugLog("❌ SV DEBUG: CloudKit Error Code: \(ckError.code.rawValue)")
                         }
                     }
                     

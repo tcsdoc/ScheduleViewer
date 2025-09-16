@@ -29,21 +29,21 @@ struct ScheduleViewerApp: App {
     }
     
     private func handleIncomingURL(_ url: URL) {
-        print("🔗 SV APP: Received URL: \(url.absoluteString)")
+        debugLog("🔗 SV APP: Received URL: \(url.absoluteString)")
         
         if url.absoluteString.contains("icloud.com/share/") {
-            print("🔗 SV APP: Detected CloudKit share URL, attempting acceptance")
+            debugLog("🔗 SV APP: Detected CloudKit share URL, attempting acceptance")
             cloudKitManager.acceptShareFromURL(url) { success, error in
                 DispatchQueue.main.async {
                     if success {
-                        print("✅ SV APP: Share accepted successfully via URL")
+                        debugLog("✅ SV APP: Share accepted successfully via URL")
                     } else {
-                        print("❌ SV APP: Share acceptance failed via URL: \(error?.localizedDescription ?? "unknown")")
+                        debugLog("❌ SV APP: Share acceptance failed via URL: \(error?.localizedDescription ?? "unknown")")
                     }
                 }
             }
         } else {
-            print("🔗 SV APP: URL is not a CloudKit share URL")
+            debugLog("🔗 SV APP: URL is not a CloudKit share URL")
         }
     }
 }

@@ -4,8 +4,9 @@ import SwiftUI
 
 // MARK: - Debug Logging Helper
 func debugLog(_ message: String) {
-    // Temporarily enabled for Production debugging of deletion issue
+    #if DEBUG
     print("SV DEBUG: \(message)")
+    #endif
 }
 
 @MainActor
