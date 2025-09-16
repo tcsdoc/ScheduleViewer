@@ -178,10 +178,26 @@ class CloudKitManager: ObservableObject {
         
         group.notify(queue: .main) { [weak self] in
             self?.isLoading = false
-            // Remove duplicates by record ID (same record might be in both shared and private)
-            let uniqueSchedules = Dictionary(grouping: allSchedules, by: { $0.id })
+            // Remove duplicates by date (multiple records for same date should show only the latest)
+            let uniqueSchedules = Dictionary(grouping: allSchedules, by: { 
+                // Group by date (day level) instead of record ID
+                guard let date = $0.date else { return "no-date-\($0.id)" }
+                let calendar = Calendar.current
+                let dayStart = calendar.startOfDay(for: date)
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                return formatter.string(from: dayStart)
+            })
                 .values
-                .compactMap { $0.first }
+                .compactMap { records in
+                    // For each date, keep the most recent record (by creation/modification)
+                    return records.max { record1, record2 in
+                        // Prefer records with more complete data (more non-empty fields)
+                        let count1 = [record1.line1, record1.line2, record1.line3].compactMap { $0 }.filter { !$0.isEmpty }.count
+                        let count2 = [record2.line1, record2.line2, record2.line3].compactMap { $0 }.filter { !$0.isEmpty }.count
+                        return count1 < count2
+                    }
+                }
                 .sorted { ($0.date ?? Date.distantPast) < ($1.date ?? Date.distantPast) }
             
             let uniqueMonthlyNotes = Dictionary(grouping: allMonthlyNotes, by: { $0.id })
