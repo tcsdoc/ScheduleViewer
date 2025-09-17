@@ -462,6 +462,7 @@ struct SharedScheduleRecord: Identifiable, Equatable, Hashable {
     let line1: String?
     let line2: String?
     let line3: String?
+    let line4: String?
     let zoneID: CKRecordZone.ID
     
     init(from record: CKRecord) {
@@ -470,6 +471,7 @@ struct SharedScheduleRecord: Identifiable, Equatable, Hashable {
         self.line1 = record["CD_line1"] as? String
         self.line2 = record["CD_line2"] as? String
         self.line3 = record["CD_line3"] as? String
+        self.line4 = record["CD_line4"] as? String
         self.zoneID = record.recordID.zoneID
     }
 }

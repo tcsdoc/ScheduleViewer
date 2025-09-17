@@ -378,13 +378,14 @@ struct ContentView: View {
                 for date in week {
                     if Calendar.current.isDate(date, equalTo: month, toGranularity: .month) {
                         let dayNumber = Calendar.current.component(.day, from: date)
-                        let schedule = dailySchedules[date] ?? ["", "", ""]
+                        let schedule = dailySchedules[date] ?? ["", "", "", ""]
                         
                         fullHTML += "<td>"
                         fullHTML += "<div class=\"day-number\">\(dayNumber)</div>"
                         fullHTML += "<div class=\"schedule-line\"><strong>OS:</strong> \(schedule[0])</div>"
                         fullHTML += "<div class=\"schedule-line\"><strong>CL:</strong> \(schedule[1])</div>"
                         fullHTML += "<div class=\"schedule-line\"><strong>OFF:</strong> \(schedule[2])</div>"
+                        fullHTML += "<div class=\"schedule-line\"><strong>CALL:</strong> \(schedule[3])</div>"
                         fullHTML += "</td>"
                     } else {
                         fullHTML += "<td></td>"
@@ -523,7 +524,8 @@ struct ContentView: View {
             schedules[dayStart] = [
                 schedule.line1 ?? "",
                 schedule.line2 ?? "",
-                schedule.line3 ?? ""
+                schedule.line3 ?? "",
+                schedule.line4 ?? ""
             ]
         }
         
@@ -561,19 +563,30 @@ struct ScheduleRowView: View {
             
             VStack(alignment: .leading, spacing: 2) {
                 if let line1 = schedule.line1, !line1.isEmpty {
-                    Text("1: \(line1)")
+                    Text("OS: \(line1)")
                         .font(.body)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
                 }
                 if let line2 = schedule.line2, !line2.isEmpty {
-                    Text("2: \(line2)")
+                    Text("CL: \(line2)")
                         .font(.body)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
                 }
                 if let line3 = schedule.line3, !line3.isEmpty {
-                    Text("3: \(line3)")
+                    Text("OFF: \(line3)")
                         .font(.body)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                }
+                if let line4 = schedule.line4, !line4.isEmpty {
+                    Text("CALL: \(line4)")
+                        .font(.body)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
                 }
             }
-            .foregroundColor(.secondary)
         }
         .padding()
         .background(Color.blue.opacity(0.05))
@@ -599,19 +612,24 @@ struct MonthlyNoteRowView: View {
             
             VStack(alignment: .leading, spacing: 2) {
                 if let line1 = note.line1, !line1.isEmpty {
-                    Text("1: \(line1)")
+                    Text("OS: \(line1)")
                         .font(.body)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
                 }
                 if let line2 = note.line2, !line2.isEmpty {
-                    Text("2: \(line2)")
+                    Text("CL: \(line2)")
                         .font(.body)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
                 }
                 if let line3 = note.line3, !line3.isEmpty {
-                    Text("3: \(line3)")
+                    Text("OFF: \(line3)")
                         .font(.body)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
                 }
             }
-            .foregroundColor(.secondary)
         }
         .padding()
         .background(Color.green.opacity(0.05))
