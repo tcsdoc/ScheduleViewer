@@ -32,6 +32,9 @@ struct ContentView: View {
             .refreshable {
                 cloudKitManager.forceRefreshSharedData()
             }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                cloudKitManager.checkForSharedData()
+            }
             .sheet(isPresented: $showingShareInput) {
                 shareInputSheet
             }
