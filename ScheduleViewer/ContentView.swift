@@ -100,7 +100,7 @@ struct ContentView: View {
                     .foregroundColor(.blue)
                 } else if !cloudKitManager.cloudKitAvailable {
                     Text("⚠️ Connection Issue")
-                        .foregroundColor(.orange)
+                        .foregroundColor(.red)
                 } else if cloudKitManager.sharedSchedules.isEmpty && cloudKitManager.sharedMonthlyNotes.isEmpty {
                     Text("📭 No Data")
                         .foregroundColor(.gray)
