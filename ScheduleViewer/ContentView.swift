@@ -13,25 +13,30 @@ struct ContentView: View {
     
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Header with CloudKit status
-                    headerSection
-                    
-                    // Share input section
-                    shareInputSection
-                    
-                    // Monthly schedule display with notes
-                    monthlyScheduleSection
+            VStack(spacing: 0) {
+                // Fixed header at top
+                headerSection
+                    .background(Color(UIColor.systemBackground))
+                    .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 2)
+                
+                // Scrollable content below
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // Share input section
+                        shareInputSection
+                        
+                        // Monthly schedule display with notes
+                        monthlyScheduleSection
+                    }
+                    .padding()
                 }
-                .padding()
+                .refreshable {
+                    cloudKitManager.forceRefreshSharedData()
+                }
             }
             .navigationBarHidden(true)
             .onAppear {
                 cloudKitManager.checkForSharedData()
-            }
-            .refreshable {
-                cloudKitManager.forceRefreshSharedData()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                 cloudKitManager.checkForSharedData()
