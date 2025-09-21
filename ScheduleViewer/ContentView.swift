@@ -87,8 +87,10 @@ struct ContentView: View {
                 }
             }
             
-            // Connection status row
+            // Connection status row - centered
             HStack {
+                Spacer()
+                
                 if cloudKitManager.isLoading {
                     HStack {
                         ProgressView()
