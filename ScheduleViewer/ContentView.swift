@@ -32,14 +32,17 @@ struct ContentView: View {
                 }
                 .refreshable {
                     cloudKitManager.forceRefreshSharedData()
+                    initializeCurrentMonth()
                 }
             }
             .navigationBarHidden(true)
             .onAppear {
                 cloudKitManager.checkForSharedData()
+                initializeCurrentMonth()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                 cloudKitManager.checkForSharedData()
+                initializeCurrentMonth()
             }
             .sheet(isPresented: $showingShareInput) {
                 shareInputSheet
@@ -168,21 +171,21 @@ struct ContentView: View {
                 Text("No schedule data available")
                     .foregroundColor(.gray)
                     .italic()
+            } else if !monthsWithData.isEmpty && currentMonthIndex < monthsWithData.count {
+                // Show only the currently selected month
+                let currentMonth = monthsWithData[currentMonthIndex]
+                monthSection(for: currentMonth)
             } else {
-                ForEach(monthsWithData, id: \.self) { month in
-                    monthSection(for: month)
-                }
+                Text("No data for selected month")
+                    .foregroundColor(.gray)
+                    .italic()
             }
         }
     }
     
     private func monthSection(for month: Date) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Month header
-            Text(monthFormatter.string(from: month))
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(.primary)
+            // Month header removed - now shown in navigation header
             
             // Monthly notes for this month (if any)
             let monthlyNotes = getMonthlyNotesFor(month: month)
@@ -492,8 +495,26 @@ struct ContentView: View {
     }
     
     private func scrollToCurrentMonth() {
-        // For now, this is a placeholder - we'll implement scroll positioning later
-        // The month navigation will work, but scrolling to position will be added in next iteration
+        // Since we're now showing only one month at a time, 
+        // this function ensures the UI updates when month changes
+        // The month change is handled by the currentMonthIndex state change
+    }
+    
+    private func initializeCurrentMonth() {
+        guard !monthsWithData.isEmpty else { return }
+        
+        let calendar = Calendar.current
+        let now = Date()
+        
+        // Try to find current month in the data
+        if let currentMonthIndex = monthsWithData.firstIndex(where: { month in
+            calendar.isDate(month, equalTo: now, toGranularity: .month)
+        }) {
+            self.currentMonthIndex = currentMonthIndex
+        } else {
+            // If current month not found, default to the most recent month
+            self.currentMonthIndex = monthsWithData.count - 1
+        }
     }
     
     private func getMonthlyNotesFor(month: Date) -> [SharedMonthlyNotesRecord] {
