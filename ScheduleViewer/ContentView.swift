@@ -9,28 +9,40 @@ struct ContentView: View {
     @State private var showingShareInput = false
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
+    @State private var currentMonthIndex = 0
     
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Header with CloudKit status
-                    headerSection
-                    
-                    // Share input section
-                    shareInputSection
-                    
-                    // Monthly schedule display with notes
-                    monthlyScheduleSection
+            VStack(spacing: 0) {
+                // Fixed header at top
+                headerSection
+                    .background(Color(UIColor.systemBackground))
+                    .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 2)
+                
+                // Scrollable content below
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // Share input section
+                        shareInputSection
+                        
+                        // Monthly schedule display with notes
+                        monthlyScheduleSection
+                    }
+                    .padding()
                 }
-                .padding()
+                .refreshable {
+                    cloudKitManager.forceRefreshSharedData()
+                    initializeCurrentMonth()
+                }
             }
-            .navigationTitle("Schedule Viewer")
+            .navigationBarHidden(true)
             .onAppear {
                 cloudKitManager.checkForSharedData()
+                initializeCurrentMonth()
             }
-            .refreshable {
-                cloudKitManager.forceRefreshSharedData()
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                cloudKitManager.checkForSharedData()
+                initializeCurrentMonth()
             }
             .sheet(isPresented: $showingShareInput) {
                 shareInputSheet
@@ -44,58 +56,85 @@ struct ContentView: View {
     }
     
     private var headerSection: some View {
-        VStack(spacing: 8) {
-            Text("📱 Schedule Viewer")
-                .font(.title2)
-                .fontWeight(.bold)
-            
-            if cloudKitManager.isLoading {
-                HStack {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    Text("Loading shared schedules...")
-                }
-                .foregroundColor(.blue)
-            } else if !cloudKitManager.cloudKitAvailable {
-                Text("⚠️ CloudKit not available")
-                    .foregroundColor(.orange)
-            } else if cloudKitManager.sharedSchedules.isEmpty && cloudKitManager.sharedMonthlyNotes.isEmpty {
-                Text("📭 No shared data found")
-                    .foregroundColor(.gray)
-            } else {
-                VStack(spacing: 8) {
-                    HStack {
-                        VStack(spacing: 2) {
-                            Text("✅ \(cloudKitManager.sharedSchedules.count) schedules")
-                                .foregroundColor(.green)
-                            Text("✅ \(cloudKitManager.sharedMonthlyNotes.count) monthly notes")
-                                .foregroundColor(.green)
-                        }
-                        .font(.caption)
-                        
-                        Spacer()
-                        
-                        Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.0")")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        Spacer()
-                        
-                        Button(action: {
-                            printCalendar()
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "printer")
-                                Text("Print")
-                            }
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.blue.opacity(0.1))
-                            .cornerRadius(8)
-                        }
+        VStack(spacing: 12) {
+            // Main header row: App name | Version | Print
+            HStack {
+                Text("📱 ScheduleViewer")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                Spacer()
+                
+                Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.7.5")")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: {
+                    printCalendar()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "printer")
+                        Text("Print")
                     }
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(8)
+                }
+            }
+            
+            // Connection status row - centered
+            HStack {
+                Spacer()
+                
+                if cloudKitManager.isLoading {
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Loading...")
+                    }
+                    .foregroundColor(.blue)
+                } else if !cloudKitManager.cloudKitAvailable {
+                    Text("⚠️ Connection Issue")
+                        .foregroundColor(.red)
+                } else if cloudKitManager.sharedSchedules.isEmpty && cloudKitManager.sharedMonthlyNotes.isEmpty {
+                    Text("📭 No Data")
+                        .foregroundColor(.gray)
+                } else {
+                    Text("✅ Connected")
+                        .foregroundColor(.green)
+                }
+                
+                Spacer()
+            }
+            .font(.caption)
+            
+            // Month navigation row
+            if !monthsWithData.isEmpty {
+                HStack {
+                    Button(action: previousMonth) {
+                        Image(systemName: "chevron.left")
+                            .foregroundColor(.blue)
+                    }
+                    .disabled(currentMonthIndex <= 0)
+                    
+                    Spacer()
+                    
+                    Text(currentMonthName)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    Spacer()
+                    
+                    Button(action: nextMonth) {
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.blue)
+                    }
+                    .disabled(currentMonthIndex >= monthsWithData.count - 1)
                 }
             }
         }
@@ -106,10 +145,10 @@ struct ContentView: View {
     
     private var shareInputSection: some View {
         VStack(spacing: 12) {
-            // Only show "Add Share" section if no data is available
+            // Only show setup section if no data is available
             if cloudKitManager.sharedSchedules.isEmpty && cloudKitManager.sharedMonthlyNotes.isEmpty && !cloudKitManager.isLoading {
                 HStack {
-                    Text("📤 Initial Setup Required")
+                    Text("📤 Setup Required")
                         .font(.headline)
                     Spacer()
                     Button("Add Share") {
@@ -118,19 +157,9 @@ struct ContentView: View {
                     .foregroundColor(.blue)
                 }
                 
-                Text("Tap 'Add Share' to connect to a Provider Schedule Calendar")
+                Text("Connect to Provider Schedule Calendar")
                     .font(.caption)
                     .foregroundColor(.gray)
-            } else if !cloudKitManager.sharedSchedules.isEmpty || !cloudKitManager.sharedMonthlyNotes.isEmpty {
-                // Show clean status when data is available
-                HStack {
-                    Text("📤 Connected to Provider Schedule")
-                        .font(.headline)
-                        .foregroundColor(.green)
-                    Spacer()
-                    Text("✅")
-                        .font(.title2)
-                }
             }
         }
         .padding()
@@ -144,21 +173,21 @@ struct ContentView: View {
                 Text("No schedule data available")
                     .foregroundColor(.gray)
                     .italic()
+            } else if !monthsWithData.isEmpty && currentMonthIndex < monthsWithData.count {
+                // Show only the currently selected month
+                let currentMonth = monthsWithData[currentMonthIndex]
+                monthSection(for: currentMonth)
             } else {
-                ForEach(monthsWithData, id: \.self) { month in
-                    monthSection(for: month)
-                }
+                Text("No data for selected month")
+                    .foregroundColor(.gray)
+                    .italic()
             }
         }
     }
     
     private func monthSection(for month: Date) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Month header
-            Text(monthFormatter.string(from: month))
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(.primary)
+            // Month header removed - now shown in navigation header
             
             // Monthly notes for this month (if any)
             let monthlyNotes = getMonthlyNotesFor(month: month)
@@ -444,6 +473,50 @@ struct ContentView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
         return formatter
+    }
+    
+    private var currentMonthName: String {
+        guard !monthsWithData.isEmpty, currentMonthIndex < monthsWithData.count else {
+            return "No Data"
+        }
+        return monthFormatter.string(from: monthsWithData[currentMonthIndex])
+    }
+    
+    private func previousMonth() {
+        if currentMonthIndex > 0 {
+            currentMonthIndex -= 1
+            scrollToCurrentMonth()
+        }
+    }
+    
+    private func nextMonth() {
+        if currentMonthIndex < monthsWithData.count - 1 {
+            currentMonthIndex += 1
+            scrollToCurrentMonth()
+        }
+    }
+    
+    private func scrollToCurrentMonth() {
+        // Since we're now showing only one month at a time, 
+        // this function ensures the UI updates when month changes
+        // The month change is handled by the currentMonthIndex state change
+    }
+    
+    private func initializeCurrentMonth() {
+        guard !monthsWithData.isEmpty else { return }
+        
+        let calendar = Calendar.current
+        let now = Date()
+        
+        // Try to find current month in the data
+        if let currentMonthIndex = monthsWithData.firstIndex(where: { month in
+            calendar.isDate(month, equalTo: now, toGranularity: .month)
+        }) {
+            self.currentMonthIndex = currentMonthIndex
+        } else {
+            // If current month not found, default to the most recent month
+            self.currentMonthIndex = monthsWithData.count - 1
+        }
     }
     
     private func getMonthlyNotesFor(month: Date) -> [SharedMonthlyNotesRecord] {
