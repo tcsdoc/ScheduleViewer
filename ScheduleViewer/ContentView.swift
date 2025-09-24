@@ -1,6 +1,7 @@
 import SwiftUI
 import CloudKit
 import UIKit
+import PDFKit
 
 struct ContentView: View {
     @EnvironmentObject var cloudKitManager: CloudKitManager
@@ -308,24 +309,26 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Print Functions
+    // MARK: - Print Functions (PDFKit Native - Same as PSC)
     private func printCalendar() {
+        // Generate PDF data using our breakthrough PDFKit solution
+        guard let pdfData = generateCalendarPDF() else {
+            debugLog("Failed to generate PDF")
+            return
+        }
+        
         let printController = UIPrintInteractionController.shared
         let printInfo = UIPrintInfo.printInfo()
         
         printInfo.outputType = .general
-        printInfo.jobName = "Provider Schedule - 12 Months"
+        printInfo.jobName = "Provider Schedule Calendar"
         printInfo.orientation = .portrait
         
         printController.printInfo = printInfo
         printController.showsNumberOfCopies = true
         
-        // Create printable content using HTML
-        let htmlContent = generateFullYearHTML()
-        let formatter = UIMarkupTextPrintFormatter(markupText: htmlContent)
-        formatter.perPageContentInsets = UIEdgeInsets(top: 30, left: 30, bottom: 30, right: 30)
-        
-        printController.printFormatter = formatter
+        // Use PDF data directly (no CSS nightmares!)
+        printController.printingItem = pdfData
         
         // Present print dialog
         printController.present(animated: true) { (controller, completed, error) in
@@ -335,99 +338,294 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - HTML Generation (Same as PSC)
-    private func generateFullYearHTML() -> String {
-        var fullHTML = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-                .page { page-break-after: always; padding: 20px; height: 100vh; box-sizing: border-box; }
-                .page:last-child { page-break-after: avoid; }
-                .header { text-align: center; margin-bottom: 15px; }
-                .title { font-size: 24px; font-weight: bold; margin-bottom: 8px; }
-                .month-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; }
-                .notes { margin-bottom: 15px; padding: 8px; background-color: #f0f0f0; font-size: 12px; }
-                .calendar { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-                .calendar th, .calendar td { border: 1.5px solid #000; padding: 4px; vertical-align: top; }
-                .calendar th { background-color: #e0e0e0; text-align: center; height: 25px; font-size: 12px; font-weight: bold; }
-                .calendar td { height: 80px; width: 14.28%; }
-                .day-number { font-weight: bold; font-size: 12px; margin-bottom: 3px; }
-                .schedule-line { font-size: 9px; margin: 1px 0; line-height: 1.2; }
-                @page { margin: 0.5in; }
-            </style>
-        </head>
-        <body>
-        """
+    // MARK: - PDF Generation (PDFKit Native - Breakthrough Solution!)
+    private func generateCalendarPDF() -> Data? {
+        // Standard US Letter size: 612 x 792 points
+        let pageSize = CGSize(width: 612, height: 792)
+        let pageMargin: CGFloat = 36 // 0.5 inch margins
+        let contentRect = CGRect(
+            x: pageMargin,
+            y: pageMargin,
+            width: pageSize.width - (pageMargin * 2),
+            height: pageSize.height - (pageMargin * 2)
+        )
         
-        // Generate each month as a separate page
+        let pdfData = NSMutableData()
+        UIGraphicsBeginPDFContextToData(pdfData, CGRect(origin: .zero, size: pageSize), nil)
+        
         for month in monthsToShow {
-            let monthFormatter = DateFormatter()
-            monthFormatter.dateFormat = "MMMM yyyy"
+            UIGraphicsBeginPDFPage()
             
-            let monthlyNotes = getMonthlyNotes(for: month)
-            let dailySchedules = getDailySchedules(for: month)
+            let context = UIGraphicsGetCurrentContext()!
             
-            fullHTML += """
-            <div class="page">
-                <div class="header">
-                    <div class="title">PROVIDER SCHEDULE</div>
-                    <div class="month-title">\(monthFormatter.string(from: month))</div>
-                </div>
-            """
-            
-            // Add monthly notes if they exist
-            if !monthlyNotes.isEmpty {
-                fullHTML += "<div class=\"notes\"><strong>Notes:</strong><br>"
-                for note in monthlyNotes {
-                    if !note.isEmpty {
-                        fullHTML += "• \(note)<br>"
-                    }
-                }
-                fullHTML += "</div>"
-            }
-            
-            // Add calendar table
-            fullHTML += "<table class=\"calendar\">"
-            
-            // Days of week header
-            fullHTML += "<tr>"
-            for day in Calendar.current.shortWeekdaySymbols {
-                fullHTML += "<th>\(day)</th>"
-            }
-            fullHTML += "</tr>"
-            
-            // Get properly aligned calendar grid
-            let calendarDays = getCalendarDaysWithAlignment(for: month)
-            let weeks = calendarDays.chunked(into: 7)
-            
-            for week in weeks {
-                fullHTML += "<tr>"
-                for date in week {
-                    if Calendar.current.isDate(date, equalTo: month, toGranularity: .month) {
-                        let dayNumber = Calendar.current.component(.day, from: date)
-                        let schedule = dailySchedules[date] ?? ["", "", "", ""]
-                        
-                        fullHTML += "<td>"
-                        fullHTML += "<div class=\"day-number\">\(dayNumber)</div>"
-                        fullHTML += "<div class=\"schedule-line\"><strong>OS:</strong> \(schedule[0])</div>"
-                        fullHTML += "<div class=\"schedule-line\"><strong>CL:</strong> \(schedule[1])</div>"
-                        fullHTML += "<div class=\"schedule-line\"><strong>OFF:</strong> \(schedule[2])</div>"
-                        fullHTML += "<div class=\"schedule-line\"><strong>CALL:</strong> \(schedule[3])</div>"
-                        fullHTML += "</td>"
-                    } else {
-                        fullHTML += "<td></td>"
-                    }
-                }
-                fullHTML += "</tr>"
-            }
-            
-            fullHTML += "</table></div>"
+            // Draw month for this page
+            drawCalendarMonth(month: month, in: contentRect, context: context)
         }
         
-        fullHTML += "</body></html>"
-        return fullHTML
+        UIGraphicsEndPDFContext()
+        return pdfData as Data
+    }
+    
+    private func drawCalendarMonth(month: Date, in rect: CGRect, context: CGContext) {
+        let monthFormatter = DateFormatter()
+        monthFormatter.dateFormat = "MMMM yyyy"
+        let monthTitle = monthFormatter.string(from: month)
+        
+        var currentY = rect.minY
+        
+        // Draw month title (compact font to save space)
+        let titleFont = UIFont.boldSystemFont(ofSize: 16)
+        let titleSize = monthTitle.size(withAttributes: [.font: titleFont])
+        let titleRect = CGRect(
+            x: rect.midX - titleSize.width / 2,
+            y: currentY,
+            width: titleSize.width,
+            height: titleSize.height
+        )
+        monthTitle.draw(in: titleRect, withAttributes: [
+            .font: titleFont,
+            .foregroundColor: UIColor.black
+        ])
+        currentY += titleSize.height + 10
+        
+        // Draw monthly notes if they exist (using SV's data structure)
+        let monthlyNotes = getSVMonthlyNotes(for: month)
+        if !monthlyNotes.isEmpty {
+            let notesFont = UIFont.systemFont(ofSize: 11)
+            var notesText = "Notes: "
+            notesText += monthlyNotes.joined(separator: " | ")
+            
+            let notesSize = notesText.size(withAttributes: [.font: notesFont])
+            let notesRect = CGRect(x: rect.minX, y: currentY, width: rect.width, height: notesSize.height)
+            
+            // Draw compact background
+            context.setFillColor(UIColor.lightGray.cgColor)
+            context.fill(notesRect.insetBy(dx: -3, dy: -2))
+            
+            // Draw text
+            notesText.draw(in: notesRect, withAttributes: [
+                .font: notesFont,
+                .foregroundColor: UIColor.black
+            ])
+            currentY += notesSize.height + 5
+        }
+        
+        // Calculate calendar grid dimensions (no gap between notes and calendar)
+        let availableHeight = rect.maxY - currentY - 5
+        let cellWidth = rect.width / 7
+        let headerHeight: CGFloat = 30
+        let calendarHeight = availableHeight - headerHeight
+        
+        // Determine how many weeks this month needs (dynamic sizing!)
+        let weeks = getWeeksForMonth(month)
+        let cellHeight = calendarHeight / CGFloat(weeks)
+        
+        // Draw calendar grid
+        drawCalendarGrid(
+            month: month,
+            startY: currentY,
+            rect: rect,
+            cellWidth: cellWidth,
+            cellHeight: cellHeight,
+            headerHeight: headerHeight,
+            context: context
+        )
+    }
+    
+    // MARK: - PDFKit Helper Functions (Adapted from PSC)
+    private func getWeeksForMonth(_ month: Date) -> Int {
+        // Use the exact same logic as our calendar generation
+        let calendarDays = getCalendarDaysWithAlignment(for: month)
+        let weeks = calendarDays.chunked(into: 7)
+        
+        // Count only weeks that contain days from the target month
+        var weeksWithContent = 0
+        for week in weeks {
+            let hasMonthContent = week.contains { date in
+                Calendar.current.isDate(date, equalTo: month, toGranularity: .month)
+            }
+            if hasMonthContent {
+                weeksWithContent += 1
+            }
+        }
+        
+        return weeksWithContent
+    }
+    
+    private func drawCalendarGrid(month: Date, startY: CGFloat, rect: CGRect, cellWidth: CGFloat, cellHeight: CGFloat, headerHeight: CGFloat, context: CGContext) {
+        var currentY = startY
+        
+        // Draw weekday headers
+        let headerFont = UIFont.boldSystemFont(ofSize: 12)
+        let weekdays = Calendar.current.shortWeekdaySymbols
+        
+        for (index, weekday) in weekdays.enumerated() {
+            let headerRect = CGRect(
+                x: rect.minX + CGFloat(index) * cellWidth,
+                y: currentY,
+                width: cellWidth,
+                height: headerHeight
+            )
+            
+            // Draw header background
+            context.setFillColor(UIColor.lightGray.cgColor)
+            context.fill(headerRect)
+            
+            // Draw header border
+            context.setStrokeColor(UIColor.black.cgColor)
+            context.setLineWidth(1.0)
+            context.stroke(headerRect)
+            
+            // Draw header text
+            let textSize = weekday.size(withAttributes: [.font: headerFont])
+            let textRect = CGRect(
+                x: headerRect.midX - textSize.width / 2,
+                y: headerRect.midY - textSize.height / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            weekday.draw(in: textRect, withAttributes: [
+                .font: headerFont,
+                .foregroundColor: UIColor.black
+            ])
+        }
+        currentY += headerHeight
+        
+        // Draw calendar days (only the weeks we actually need)
+        let calendarDays = getCalendarDaysWithAlignment(for: month)
+        let allWeeks = calendarDays.chunked(into: 7)
+        
+        // Only draw weeks that contain days from this month
+        let weeksToShow = allWeeks.filter { week in
+            week.contains { date in
+                Calendar.current.isDate(date, equalTo: month, toGranularity: .month)
+            }
+        }
+        
+        for week in weeksToShow {
+            for (dayIndex, date) in week.enumerated() {
+                let cellRect = CGRect(
+                    x: rect.minX + CGFloat(dayIndex) * cellWidth,
+                    y: currentY,
+                    width: cellWidth,
+                    height: cellHeight
+                )
+                
+                // Draw cell border
+                context.setStrokeColor(UIColor.black.cgColor)
+                context.setLineWidth(1.0)
+                context.stroke(cellRect)
+                
+                // Only draw content for days in the current month
+                if Calendar.current.isDate(date, equalTo: month, toGranularity: .month) {
+                    drawDayCell(date: date, in: cellRect, context: context, month: month)
+                }
+            }
+            currentY += cellHeight
+        }
+    }
+    
+    private func drawDayCell(date: Date, in rect: CGRect, context: CGContext, month: Date) {
+        let dayNumber = Calendar.current.component(.day, from: date)
+        let schedule = getSVDailySchedule(for: date)
+        
+        let padding: CGFloat = 2
+        let contentRect = rect.insetBy(dx: padding, dy: padding)
+        var textY = contentRect.minY
+        
+        // Draw day number
+        let dayFont = UIFont.boldSystemFont(ofSize: 10)
+        let dayText = "\(dayNumber)"
+        
+        dayText.draw(at: CGPoint(x: contentRect.minX, y: textY), withAttributes: [
+            .font: dayFont,
+            .foregroundColor: UIColor.black
+        ])
+        textY += dayFont.lineHeight + 1
+        
+        // Draw schedule data - label on one line, value on next line (monochrome)
+        let scheduleFont = UIFont.systemFont(ofSize: 7)
+        let maxWidth = contentRect.width
+        
+        // OS field
+        drawLabelAndValue("OS", value: schedule[0], 
+                         startY: &textY, at: contentRect.minX, 
+                         maxWidth: maxWidth, font: scheduleFont, color: UIColor.black)
+        
+        // CL field
+        drawLabelAndValue("CL", value: schedule[1], 
+                         startY: &textY, at: contentRect.minX, 
+                         maxWidth: maxWidth, font: scheduleFont, color: UIColor.black)
+        
+        // OFF field
+        drawLabelAndValue("OFF", value: schedule[2], 
+                         startY: &textY, at: contentRect.minX, 
+                         maxWidth: maxWidth, font: scheduleFont, color: UIColor.black)
+        
+        // CALL field
+        drawLabelAndValue("CALL", value: schedule[3], 
+                         startY: &textY, at: contentRect.minX, 
+                         maxWidth: maxWidth, font: scheduleFont, color: UIColor.black)
+    }
+    
+    private func drawLabelAndValue(_ label: String, value: String?, startY: inout CGFloat, at x: CGFloat, maxWidth: CGFloat, font: UIFont, color: UIColor) {
+        let lineHeight: CGFloat = 8
+        
+        // Draw label on first line
+        label.draw(at: CGPoint(x: x, y: startY), withAttributes: [
+            .font: font,
+            .foregroundColor: color
+        ])
+        startY += lineHeight
+        
+        // Draw value on second line (if it exists)
+        if let value = value, !value.isEmpty {
+            let maxChars = Int(maxWidth / 4) // Rough estimate: 4 points per character
+            let displayValue = value.count > maxChars ? String(value.prefix(maxChars - 1)) + "…" : value
+            
+            displayValue.draw(at: CGPoint(x: x, y: startY), withAttributes: [
+                .font: font,
+                .foregroundColor: color
+            ])
+        }
+        startY += lineHeight
+    }
+    
+    // MARK: - SV Data Access Helper Functions
+    private func getSVMonthlyNotes(for month: Date) -> [String] {
+        // Convert SV's SharedMonthlyNotesRecord to array format
+        let calendar = Calendar.current
+        let monthlyNotesForMonth = cloudKitManager.sharedMonthlyNotes.filter { note in
+            guard let noteDate = calendar.date(from: DateComponents(year: note.year, month: note.month)) else { return false }
+            return calendar.isDate(noteDate, equalTo: month, toGranularity: .month)
+        }
+        
+        var notes: [String] = []
+        for note in monthlyNotesForMonth {
+            if let line1 = note.line1, !line1.isEmpty {
+                notes.append(line1)
+            }
+            if let line2 = note.line2, !line2.isEmpty {
+                notes.append(line2)
+            }
+        }
+        return notes
+    }
+    
+    private func getSVDailySchedule(for date: Date) -> [String] {
+        // Convert SV's SharedScheduleRecord to array format [OS, CL, OFF, CALL]
+        let calendar = Calendar.current
+        let scheduleForDate = cloudKitManager.sharedSchedules.first { schedule in
+            guard let scheduleDate = schedule.date else { return false }
+            return calendar.isDate(scheduleDate, inSameDayAs: date)
+        }
+        
+        return [
+            scheduleForDate?.line1 ?? "",
+            scheduleForDate?.line2 ?? "",
+            scheduleForDate?.line3 ?? "",
+            scheduleForDate?.line4 ?? ""
+        ]
     }
     
     private var monthsToShow: [Date] {
