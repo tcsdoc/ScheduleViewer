@@ -67,7 +67,7 @@ Download ScheduleViewer and always know where you're working!
 
 ### What's New in This Version
 ```
-Version 4.0.2 - Bug Fix
+Version 4.0.3 - Bug Fix
 
 FIXED:
 • App now opens to current month instead of old months
@@ -241,8 +241,8 @@ Standard Apple License Agreement
 ## Build Information
 
 ### Build Details
-- **Version**: 4.0.2
-- **Build**: 4
+- **Version**: 4.0.3
+- **Build**: 5
 - **Minimum OS Version**: iOS 15.0
 - **Device Support**: iPhone, iPad
 
@@ -293,7 +293,7 @@ Standard Apple License Agreement
 
 ## Release Notes
 
-### Version 4.0.2 (Current)
+### Version 4.0.3 (Current)
 - Fixed: App now opens to current month instead of old months
 - Improved: Past months automatically hidden (only current/future displayed)
 - Enhanced: Providers no longer need to scroll to find current assignments

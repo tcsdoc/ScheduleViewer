@@ -234,7 +234,7 @@ generateCalendarPDF() -> Data?
 
 ## Version History
 
-- **v4.0.2** (Current): Fixed app opening to current month, removed past month display
+- **v4.0.3** (Current): Fixed app opening to current month, removed past month display
 - **v4.0**: PDFKit native printing breakthrough, improved reliability
 - **v3.7.5**: Previous version with CSS-based printing
 - **Earlier**: Initial releases
