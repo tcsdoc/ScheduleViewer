@@ -31,6 +31,9 @@ class CloudKitManager: ObservableObject {
         }
     }
     
+    // Target zone that PSC shares
+    private let targetZoneID = CKRecordZone.ID(zoneName: "ProviderScheduleZone")
+    
     init() {
         container = CKContainer(identifier: "iCloud.com.gulfcoast.ProviderCalendar")
         sharedDatabase = container.sharedCloudDatabase

@@ -642,24 +642,30 @@ struct ContentView: View {
     
     private var monthsWithData: [Date] {
         let calendar = Calendar.current
+        let now = Date()
+        let currentMonthStart = calendar.dateInterval(of: .month, for: now)?.start ?? now
         var monthsSet: Set<Date> = []
         
-        // Add months that have schedule data
+        // Add months that have schedule data (current month and future only)
         for schedule in cloudKitManager.sharedSchedules {
             if let date = schedule.date {
                 let monthStart = calendar.dateInterval(of: .month, for: date)?.start ?? date
-                monthsSet.insert(monthStart)
+                if monthStart >= currentMonthStart {
+                    monthsSet.insert(monthStart)
+                }
             }
         }
         
-        // Add months that have monthly notes
+        // Add months that have monthly notes (current month and future only)
         for note in cloudKitManager.sharedMonthlyNotes {
             var components = DateComponents()
             components.year = note.year
             components.month = note.month
             components.day = 1
             if let monthStart = calendar.date(from: components) {
-                monthsSet.insert(monthStart)
+                if monthStart >= currentMonthStart {
+                    monthsSet.insert(monthStart)
+                }
             }
         }
         
