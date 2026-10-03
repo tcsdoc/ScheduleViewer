@@ -234,7 +234,8 @@ generateCalendarPDF() -> Data?
 
 ## Version History
 
-- **v4.0.3** (Current): Fixed app opening to current month, removed past month display
+- **v4.0.4** (Current, build 6): iPad shows a full-screen Sunday-first month calendar like the printout. iPhone stays a one-column list, with the weekday in the date. Removed unused https URL scheme.
+- **v4.0.3**: Fixed app opening to current month, removed past month display
 - **v4.0**: PDFKit native printing breakthrough, improved reliability
 - **v3.7.5**: Previous version with CSS-based printing
 - **Earlier**: Initial releases

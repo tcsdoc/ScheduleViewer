@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
     @State private var currentMonthIndex = 0
+    @Environment(\.horizontalSizeClass) private var hSize
     
     var body: some View {
         NavigationView {
@@ -23,13 +24,13 @@ struct ContentView: View {
                 // Scrollable content below
                 ScrollView {
                     VStack(spacing: 20) {
-                        // Share input section
                         shareInputSection
-                        
-                        // Monthly schedule display with notes
                         monthlyScheduleSection
                     }
-                    .padding()
+                    .frame(maxWidth: 1100)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, hSize == .regular ? 32 : 16)
+                    .padding(.vertical)
                 }
                 .refreshable {
                     cloudKitManager.forceRefreshSharedData()
@@ -54,6 +55,7 @@ struct ContentView: View {
                 Text(errorMessage)
             }
         }
+        .navigationViewStyle(.stack)
     }
     
     private var headerSection: some View {
@@ -139,33 +141,36 @@ struct ContentView: View {
                 }
             }
         }
-        .padding()
+        .padding(.vertical)
         .background(Color.gray.opacity(0.1))
         .cornerRadius(8)
+        .frame(maxWidth: 1100)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, hSize == .regular ? 32 : 16)
     }
     
+    private var needsSetup: Bool {
+        cloudKitManager.sharedSchedules.isEmpty && cloudKitManager.sharedMonthlyNotes.isEmpty && !cloudKitManager.isLoading
+    }
+
+    @ViewBuilder
     private var shareInputSection: some View {
-        VStack(spacing: 12) {
-            // Only show setup section if no data is available
-            if cloudKitManager.sharedSchedules.isEmpty && cloudKitManager.sharedMonthlyNotes.isEmpty && !cloudKitManager.isLoading {
+        if needsSetup {
+            VStack(spacing: 12) {
                 HStack {
-                    Text("📤 Setup Required")
-                        .font(.headline)
+                    Text("📤 Setup Required").font(.headline)
                     Spacer()
-                    Button("Add Share") {
-                        showingShareInput = true
-                    }
-                    .foregroundColor(.blue)
+                    Button("Add Share") { showingShareInput = true }
+                        .foregroundColor(.blue)
                 }
-                
                 Text("Connect to Provider Schedule Calendar")
                     .font(.caption)
                     .foregroundColor(.gray)
             }
+            .padding()
+            .background(Color.blue.opacity(0.05))
+            .cornerRadius(8)
         }
-        .padding()
-        .background(Color.blue.opacity(0.05))
-        .cornerRadius(8)
     }
     
     private var monthlyScheduleSection: some View {
@@ -212,8 +217,14 @@ struct ContentView: View {
                         .font(.headline)
                         .foregroundColor(.secondary)
                     
-                    ForEach(schedules) { schedule in
-                        ScheduleRowView(schedule: schedule)
+                    if hSize == .regular {
+                        MonthCalendarGrid(month: month, schedules: schedules)
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(schedules) { schedule in
+                                ScheduleRowView(schedule: schedule)
+                            }
+                        }
                     }
                 }
             }
@@ -226,6 +237,7 @@ struct ContentView: View {
                     .font(.caption)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
@@ -266,6 +278,7 @@ struct ContentView: View {
                 shareURL = ""
             })
         }
+        .navigationViewStyle(.stack)
     }
     
     private func acceptShare() {
@@ -829,6 +842,109 @@ extension UIView {
     }
 }
 
+struct MonthCalendarGrid: View {
+    let month: Date
+    let schedules: [SharedScheduleRecord]
+
+    private let cal: Calendar = {
+        var c = Calendar.current
+        c.firstWeekday = 1   // Sunday first, same as the printout
+        return c
+    }()
+
+    // Sun..Sat, same symbols the print code uses
+    private var weekdaySymbols: [String] { Calendar.current.shortWeekdaySymbols }
+
+    // Weeks of optional dates (nil = blank cell)
+    private var weeks: [[Date?]] {
+        guard let interval = cal.dateInterval(of: .month, for: month),
+              let dayCount = cal.range(of: .day, in: .month, for: month)?.count else { return [] }
+        let first = interval.start
+        let leading = cal.component(.weekday, from: first) - 1   // Sunday = 1
+        var cells: [Date?] = Array(repeating: nil, count: leading)
+        for d in 0..<dayCount {
+            cells.append(cal.date(byAdding: .day, value: d, to: first))
+        }
+        while cells.count % 7 != 0 { cells.append(nil) }
+        return stride(from: 0, to: cells.count, by: 7).map { Array(cells[$0..<$0 + 7]) }
+    }
+
+    private func entries(on day: Date) -> [SharedScheduleRecord] {
+        schedules.filter { s in
+            guard let d = s.date else { return false }
+            return cal.isDate(d, inSameDayAs: day)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Weekday header row
+            HStack(spacing: 0) {
+                ForEach(0..<7, id: \.self) { i in
+                    Text(weekdaySymbols[i])
+                        .font(.subheadline).fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color.blue.opacity(0.75))
+                        .overlay(Rectangle().stroke(Color.blue.opacity(0.35), lineWidth: 0.5))
+                }
+            }
+            // Week rows
+            ForEach(0..<weeks.count, id: \.self) { w in
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(0..<7, id: \.self) { i in
+                        dayCell(weeks[w][i])
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)   // all cells in a week share the tallest height
+            }
+        }
+        .background(Color(.systemBackground))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.blue.opacity(0.35), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private func dayCell(_ day: Date?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let day = day {
+                Text("\(cal.component(.day, from: day))")
+                    .font(.subheadline).fontWeight(.bold)
+                    .foregroundColor(cal.isDateInToday(day) ? .white : .primary)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(cal.isDateInToday(day) ? Color.blue : Color.clear)
+                    .clipShape(Capsule())
+                ForEach(entries(on: day)) { s in
+                    VStack(alignment: .leading, spacing: 1) {
+                        line("OS", s.line1)
+                        line("CL", s.line2)
+                        line("OFF", s.line3)
+                        line("CALL", s.line4)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(5)
+        .frame(maxWidth: .infinity, minHeight: 84, maxHeight: .infinity, alignment: .topLeading)
+        .background(day == nil ? Color.gray.opacity(0.08) : Color.blue.opacity(0.04))
+        .overlay(Rectangle().stroke(Color.blue.opacity(0.25), lineWidth: 0.5))
+    }
+
+    @ViewBuilder
+    private func line(_ label: String, _ value: String?) -> some View {
+        if let v = value, !v.isEmpty {
+            Text("\(label): \(v)")
+                .font(.caption).fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 struct ScheduleRowView: View {
     let schedule: SharedScheduleRecord
     
@@ -865,15 +981,18 @@ struct ScheduleRowView: View {
                 }
             }
         }
-        .padding()
-        .background(Color.blue.opacity(0.05))
-        .cornerRadius(8)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.blue.opacity(0.06))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(Color.blue.opacity(0.25), lineWidth: 1))
+        .cornerRadius(10)
     }
     
     private func formatDate(_ date: Date?) -> String {
         guard let date = date else { return "Unknown Date" }
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
+        formatter.setLocalizedDateFormatFromTemplate("EEE MMM d yyyy")   // "Thu, Oct 1, 2026"
         return formatter.string(from: date)
     }
 }
@@ -908,9 +1027,12 @@ struct MonthlyNoteRowView: View {
                 }
             }
         }
-        .padding()
-        .background(Color.green.opacity(0.05))
-        .cornerRadius(8)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.green.opacity(0.06))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(Color.green.opacity(0.25), lineWidth: 1))
+        .cornerRadius(10)
     }
     
     private func formatMonthYear(_ month: Int, _ year: Int) -> String {
